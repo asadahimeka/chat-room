@@ -24,3 +24,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 yarn.lock*
+
+# bun client build output (source lives in src/views/, only the bundle lands here)
+/static/js/room.client.js
+
+# bun lockfile
+bun.lock
+
+# sisyphus workspace state (plans/evidence live here, sync via boulder protocol)
+.sisyphus/
