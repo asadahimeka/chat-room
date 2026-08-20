@@ -1,0 +1,232 @@
+import { describe, expect, test } from 'bun:test'
+import { Elysia } from 'elysia'
+import { RoomState } from '../src/ws/room-state'
+import { registerWs } from '../src/ws/handler'
+import { db } from '../src/db'
+import { randomRoomName, tmpDbPath } from './setup'
+
+// Point the lazy `db` proxy at a throwaway DB BEFORE any message triggers
+// setRecord. The proxy only creates the underlying Database on first access,
+// so this assignment (module top-level) is guaranteed to be in effect by the
+// time a test sends a chat message.
+process.env.DB_PATH = tmpDbPath()
+
+interface Collected {
+  type: string
+  data: unknown
+}
+
+/** Wraps a client WebSocket and buffers every parsed message it receives. */
+function connect(url: string, headers: Record<string, string>): Promise<{
+  ws: WebSocket
+  messages: Collected[]
+  waitFor: (type: string, count?: number) => Promise<Collected[]>
+}> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { headers } as any)
+    const messages: Collected[] = []
+    const waiters: Array<{ type: string; count: number; resolve: (m: Collected[]) => void }> = []
+
+    ws.onmessage = (ev) => {
+      const parsed = JSON.parse(String(ev.data)) as Collected
+      messages.push(parsed)
+      for (let i = waiters.length - 1; i >= 0; i--) {
+        const w = waiters[i]
+        if (parsed.type === w.type && messages.filter((m) => m.type === w.type).length >= w.count) {
+          waiters.splice(i, 1)
+          w.resolve(messages.filter((m) => m.type === w.type))
+        }
+      }
+    }
+    ws.onerror = (ev) => reject(new Error(`ws error: ${String(ev)}`))
+    ws.onopen = () =>
+      resolve({
+        ws,
+        messages,
+        waitFor: (type, count = 1) =>
+          new Promise((res) => {
+            const existing = messages.filter((m) => m.type === type)
+            if (existing.length >= count) return res(existing)
+            waiters.push({ type, count, resolve: res })
+          }),
+      })
+  })
+}
+
+describe('ws handler — connection lifecycle + broadcast pipeline', () => {
+  test('both clients receive init + online on connect', async () => {
+    const room = randomRoomName('t1')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+
+    const aInit = await a.waitFor('init')
+    expect(aInit[0].data).toEqual({ uid: 'u1', name: 'Alice' })
+    const aOnline = await a.waitFor('online')
+    expect(aOnline[0].data).toEqual([{ uid: 'u1', name: 'Alice' }])
+    const aSys = await a.waitFor('sys')
+    expect(aSys[0].data).toBe('Alice(u1) join the chat.')
+
+    const bInit = await b.waitFor('init')
+    expect(bInit[0].data).toEqual({ uid: 'u2', name: 'Bob' })
+    const bOnline = await b.waitFor('online')
+    expect(bOnline[0].data).toEqual([
+      { uid: 'u1', name: 'Alice' },
+      { uid: 'u2', name: 'Bob' },
+    ])
+    const bSys = await b.waitFor('sys')
+    expect(bSys[0].data).toBe('Bob(u2) join the chat.')
+
+    const aOnline2 = await a.waitFor('online', 2)
+    expect(aOnline2[1].data).toEqual([
+      { uid: 'u1', name: 'Alice' },
+      { uid: 'u2', name: 'Bob' },
+    ])
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
+
+  test('message is broadcast with full MsgItem and persisted to DB', async () => {
+    const room = randomRoomName('t2')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    a.ws.send(
+      JSON.stringify({
+        type: 'message',
+        data: {
+          uid: 'u1',
+          name: 'Alice',
+          msg: 'hello world',
+          namecolor: '#ff0000',
+          msgcolor: '#00ff00',
+        },
+      }),
+    )
+
+    const msg = await b.waitFor('msg')
+    const item = msg[0].data as Record<string, unknown>
+    expect(item.name).toBe('Alice')
+    expect(item.room).toBe(room)
+    expect(item.uid).toBe('u1')
+    expect(item.sid).toBe('s1')
+    expect(typeof item.ts).toBe('number')
+    expect(Number.isInteger(item.ts)).toBe(true)
+    expect(item.namecolor).toBe('#ff0000')
+    expect(item.msgcolor).toBe('#00ff00')
+    expect(item.msg).toBe('hello world')
+
+    const rows = db.getRecord(room)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].msg).toBe('hello world')
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
+
+  test('demo room broadcasts but does NOT persist to DB', async () => {
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=demo&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    await a.waitFor('online')
+
+    a.ws.send(
+      JSON.stringify({
+        type: 'message',
+        data: {
+          uid: 'u1',
+          name: 'Alice',
+          msg: 'demo msg',
+          namecolor: '#ff0000',
+          msgcolor: '#00ff00',
+        },
+      }),
+    )
+
+    await a.waitFor('msg')
+    expect(db.getRecord('demo')).toHaveLength(0)
+
+    a.ws.close()
+    app.stop()
+  })
+
+  test('change-name broadcasts rename + online + sys to both clients', async () => {
+    const room = randomRoomName('t4')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    a.ws.send(JSON.stringify({ type: 'change-name', data: 'Alice2' }))
+
+    const rename = await b.waitFor('rename')
+    expect(rename[0].data).toEqual({ uid: 'u1', name: 'Alice2' })
+
+    const online = await b.waitFor('online', 2)
+    expect(online[1].data).toEqual([
+      { uid: 'u1', name: 'Alice2' },
+      { uid: 'u2', name: 'Bob' },
+    ])
+
+    const sys = await b.waitFor('sys', 2)
+    expect(sys[1].data).toBe('Alice(u1) changed the name from Alice to Alice2.')
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
+
+  test('disconnect broadcasts leave sys + updated online to remaining client', async () => {
+    const room = randomRoomName('t5')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    a.ws.close()
+
+    const sys = await b.waitFor('sys', 2)
+    expect(sys[1].data).toBe('Alice(u1) leave the chat.')
+
+    const online = await b.waitFor('online', 2)
+    expect(online[1].data).toEqual([{ uid: 'u2', name: 'Bob' }])
+
+    b.ws.close()
+    app.stop()
+  })
+})
