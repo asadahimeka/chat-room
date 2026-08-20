@@ -36,7 +36,7 @@ function processUnsafeHtml(source: string): string {
   return source.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function record2svg({ roomId, record, width, height, limit, theme, title = `${roomId}\n@chat.getloli.com: ~`, fontSize }: Record2SvgOptions): string {
+function record2svg({ roomId, record, width, height, limit, theme, title = `${roomId}\n  @chat.getloli.com: ~`, fontSize }: Record2SvgOptions): string {
   let tpl = ''
 
   record.reverse().forEach(msg => {

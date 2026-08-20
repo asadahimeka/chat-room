@@ -45,7 +45,7 @@ export const roomRouter = new Elysia()
       height: Math.abs(Number(q.height ?? 300)),
       limit,
       theme: q.theme ?? '',
-      title: q.title ?? `${p.roomId}\n@chat.getloli.com: ~`,
+      title: q.title ?? `${p.roomId}\n  @chat.getloli.com: ~`,
       fontSize: Math.abs(Number(q.fontSize ?? 12)),
     })
     return new Response(svg, {

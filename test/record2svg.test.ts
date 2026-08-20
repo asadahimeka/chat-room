@@ -92,8 +92,8 @@ describe('record2svg / formatLt', () => {
     expect(svg).toContain('<span class="msg" style="color:#000000">&lt;b&gt;&amp;amp;&lt;/b&gt;</span>')
   })
 
-  it('default title is `${roomId}\\n@chat.getloli.com: ~`', () => {
+  it('default title is `${roomId}\\n  @chat.getloli.com: ~`', () => {
     const svg = record2svg({ roomId: '@demo', record: [baseMsg], width: 750, height: 360 })
-    expect(svg).toContain('@demo\n@chat.getloli.com: ~')
+    expect(svg).toContain('@demo\n  @chat.getloli.com: ~')
   })
 })
