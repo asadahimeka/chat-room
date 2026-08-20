@@ -32,10 +32,10 @@ describe('app entry — routes + static + ws', () => {
     expect(await res.text()).toBe('alive')
   })
 
-  test('GET /favicon.png returns 200 image/png', async () => {
-    const res = await fetch(`${baseUrl}/favicon.png`)
+  test('GET /favicon.ico returns 200 image/x-icon', async () => {
+    const res = await fetch(`${baseUrl}/favicon.ico`)
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('content-type')).toBe('image/x-icon')
   })
 
   test('GET /notify.mp3 returns 200 audio/mpeg', async () => {

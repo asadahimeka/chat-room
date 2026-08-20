@@ -7,30 +7,18 @@ import { registerWs } from './ws/handler'
 
 const roomState = new RoomState()
 
-async function resolveStatic(rel: string): Promise<Bun.BunFile | null> {
-  for (const base of ['./static', './assets']) {
-    const file = Bun.file(`${base}/${rel}`)
-    if (await file.exists()) return file
-  }
-  return null
+async function resolveStatic(rel: string): Promise<Response> {
+  const file = Bun.file(`./static/${rel}`)
+  if (await file.exists()) return new Response(file)
+  return new Response('Not Found', { status: 404 })
 }
 
 export const app = registerWs(new Elysia(), roomState)
   .use(miscRouter)
   .group('/room', (g) => g.use(roomRouter))
-  .get('/favicon.png', async () => {
-    const file = await resolveStatic('favicon.png')
-    return file ? new Response(file) : new Response('Not Found', { status: 404 })
-  })
-  .get('/notify.mp3', async () => {
-    const file = await resolveStatic('notify.mp3')
-    return file ? new Response(file) : new Response('Not Found', { status: 404 })
-  })
-  .get('/static/*', async ({ params }) => {
-    const rel = (params as { '*': string })['*']
-    const file = await resolveStatic(rel)
-    return file ? new Response(file) : new Response('Not Found', { status: 404 })
-  })
+  .get('/favicon.ico', async () => resolveStatic('favicon.ico'))
+  .get('/notify.mp3', async () => resolveStatic('notify.mp3'))
+  .get('/static/*', async ({ params }) => resolveStatic(params['*']))
 
 setInterval(() => {
   console.log('room list:', JSON.stringify(roomState.listAll()))

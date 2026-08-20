@@ -52,7 +52,7 @@ export class Notify {
       new Notification(`${info.to}, Someone mentions you`, {
         tag: 'mention-notify',
         body: `${info.from}::${info.roomId}: ${info.msg}`,
-        icon: '/favicon.png',
+        icon: '/favicon.ico',
       })
     }
   }
