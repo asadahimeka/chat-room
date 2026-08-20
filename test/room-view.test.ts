@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { renderRoomPage } from '../src/views/room.tsx'
+import { renderRoomPage } from '../src/views/room'
 
 const CONTRACT_IDS = [
   'room-header',
@@ -14,7 +14,7 @@ const CONTRACT_IDS = [
   'toast',
 ] as const
 
-describe('renderRoomPage server-side JSX room page', () => {
+describe('renderRoomPage room page', () => {
   it('returns a full HTML document string', () => {
     const html = renderRoomPage({ roomId: '@demo' })
     expect(typeof html).toBe('string')
@@ -76,7 +76,7 @@ describe('renderRoomPage server-side JSX room page', () => {
 
   it('contains the favicon link', () => {
     const html = renderRoomPage({ roomId: '@demo' })
-    expect(html).toContain('href="/favicon.png"')
+    expect(html).toContain('href="/favicon.ico"')
   })
 
   it('uses the contract class names', () => {

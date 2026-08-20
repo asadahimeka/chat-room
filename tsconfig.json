@@ -3,7 +3,6 @@
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "jsx": "react-jsx",
     "strict": true,
     "types": ["bun-types"],
     "noEmit": true,

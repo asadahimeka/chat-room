@@ -1,5 +1,5 @@
 /**
- * Server-side JSX room page renderer (Bun native).
+ * Room page renderer.
  *
  * Renders the full HTML document skeleton for a chat room. All client
  * interaction logic lives in the bundled module `/static/js/room.client.js`
@@ -33,52 +33,6 @@ type RoomPageProps = {
   title?: string
 }
 
-type JsxNode = {
-  type: string
-  key: string | null
-  props: Record<string, unknown>
-  _owner: unknown
-  _store: Record<string, unknown>
-}
-
-const VOID_ELEMENTS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',
-  'meta', 'param', 'source', 'track', 'wbr',
-])
-
-function renderChildren(children: unknown, tag: string): string {
-  if (children == null) return ''
-  if (Array.isArray(children)) return children.map((c) => renderNode(c, tag)).join('')
-  return renderNode(children, tag)
-}
-
-function renderNode(node: unknown, parentTag: string): string {
-  if (node == null || node === false) return ''
-  if (typeof node === 'string' || typeof node === 'number') {
-    // Script/style bodies are raw text in HTML; everything else is escaped.
-    if (parentTag === 'script' || parentTag === 'style') return String(node)
-    return Bun.escapeHTML(String(node))
-  }
-  const el = node as JsxNode
-  const { type, props } = el
-  const { children, ...attrs } = props
-
-  const attrParts: string[] = []
-  for (const [key, value] of Object.entries(attrs)) {
-    if (value == null || value === false) continue
-    if (value === true) {
-      attrParts.push(` ${key}`)
-    } else {
-      attrParts.push(` ${key}="${Bun.escapeHTML(String(value))}"`)
-    }
-  }
-
-  const inner = renderChildren(children, type)
-
-  if (VOID_ELEMENTS.has(type)) return `<${type}${attrParts.join('')}>`
-  return `<${type}${attrParts.join('')}>${inner}</${type}>`
-}
-
 export function renderRoomPage({ roomId, title }: RoomPageProps): string {
   const pageTitle = `${roomId} - Chat Room`
   const data = JSON.stringify({ roomId, title: title ?? '' })
@@ -86,16 +40,17 @@ export function renderRoomPage({ roomId, title }: RoomPageProps): string {
     .replace(/>/g, '\\u003e')
     .replace(/&/g, '\\u0026')
 
-  const tree = (
+  return (/** html */ `
+    <!DOCTYPE html>
     <html lang="zh-CN">
       <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-        <meta name="color-scheme" content="light dark" />
-        <title>{pageTitle}</title>
-        <link rel="icon" href="/favicon.png" />
-        <link rel="stylesheet" href="/static/css/room.css" />
-        <script type="application/json" id="room-data">{data}</script>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <meta name="color-scheme" content="light dark">
+        <title>${Bun.escapeHTML(pageTitle)}</title>
+        <link rel="icon" href="/favicon.ico">
+        <link rel="stylesheet" href="/static/css/room.css">
+        <script type="application/json" id="room-data">${data}</script>
       </head>
       <body>
         <div class="room-layout">
@@ -109,10 +64,10 @@ export function renderRoomPage({ roomId, title }: RoomPageProps): string {
             <div id="msg-list"></div>
           </main>
           <footer class="composer">
-            <input id="name-input" type="text" placeholder="nickname" maxlength="32" />
+            <input id="name-input" type="text" placeholder="nickname" maxlength="32">
             <textarea id="msg-input" placeholder="some text..." maxlength="1000"></textarea>
-            <input id="name-color" type="color" value="#117743" />
-            <input id="msg-color" type="color" value="#3d3d3d" />
+            <input id="name-color" type="color" value="#117743">
+            <input id="msg-color" type="color" value="#3d3d3d">
             <button id="send-btn" type="button">Send</button>
           </footer>
         </div>
@@ -120,7 +75,5 @@ export function renderRoomPage({ roomId, title }: RoomPageProps): string {
         <script type="module" src="/static/js/room.client.js"></script>
       </body>
     </html>
-  )
-
-  return `<!DOCTYPE html>\n${renderNode(tree, '')}`
+  `).trim()
 }
