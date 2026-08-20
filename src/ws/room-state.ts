@@ -50,6 +50,14 @@ export class RoomState {
     return room.map(u => ({ uid: u.uid, name: u.name }))
   }
 
+  listAll(): Record<string, JoinedUser[]> {
+    const out: Record<string, JoinedUser[]> = {}
+    for (const [roomId, users] of this.rooms) {
+      out[roomId] = users.map(u => ({ uid: u.uid, name: u.name }))
+    }
+    return out
+  }
+
   removeRoomIfEmpty(roomId: string): boolean {
     const room = this.rooms.get(roomId)
     if (room && room.length === 0) {
