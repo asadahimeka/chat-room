@@ -33,3 +33,6 @@ bun.lock
 
 # sisyphus workspace state (plans/evidence live here, sync via boulder protocol)
 .sisyphus/
+
+*.db-shm
+*.db-wal

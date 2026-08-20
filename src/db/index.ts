@@ -51,7 +51,7 @@ export function createDb(dbPath: string): Db {
   // On ':memory:' databases SQLite reports journal mode 'memory' and WAL is a
   // no-op — it must not throw, so guard it.
   try {
-    db.exec('PRAGMA journal_mode = WAL')
+    db.run('PRAGMA journal_mode = WAL')
   } catch {
     // ':memory:' (and readonly) databases cannot switch to WAL; ignore.
   }

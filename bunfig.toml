@@ -1,0 +1,6 @@
+telemetry = false
+
+[install]
+registry = "https://registry.npmjs.org"
+saveTextLockfile = true
+frozenLockfile = false

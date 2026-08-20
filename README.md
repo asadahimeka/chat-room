@@ -1,4 +1,4 @@
-<p align="center"><img src="https://count.getloli.com/get/@chat-room.github" alt="chat-room"></p>
+<p align="center"><img src="https://count.nanoka.top/@chat-room.github" alt="chat-room"></p>
 
 # chat-room
 
@@ -19,7 +19,7 @@
 ## 安装与运行
 
 ```shell
-$ git clone https://github.com/journey-ad/chat-room.git
+$ git clone https://github.com/asadahimeka/chat-room.git
 $ cd chat-room
 $ bun install
 
@@ -118,11 +118,10 @@ https://chat.getloli.com/room/@test/svg?width=750&height=360&limit=20&theme=ligh
 
 ## Credits
 
-*   [repl.it](https://repl.it/)
-*   [Node.js 與 Socket.io – 即時聊天室實作](https://single9.net/2017/12/node-js-%e8%88%87-socket-io-%e5%8d%b3%e6%99%82%e8%81%8a%e5%a4%a9%e5%ae%a4%e5%af%a6%e4%bd%9c/)
-*   [SVG <foreignObject>简介与截图等应用](https://www.zhangxinxu.com/wordpress/2017/08/svg-foreignobject/)
-*   [Icons8](https://icons8.com/icons/set/star)
+*   [chat-room](https://github.com/journey-ad/chat-room)
+*   [Bun](https://bun.sh)
+*   [ElysiaJS](https://elysiajs.com)
 
 ## License
 
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjourney-ad%2Fchat-room.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjourney-ad%2Fchat-room?ref=badge_large)
+MIT
