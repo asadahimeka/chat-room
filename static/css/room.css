@@ -1,0 +1,719 @@
+/* ==========================================================================
+   chat-room — dual-theme design system
+   --------------------------------------------------------------------------
+   Source of truth: src/styles/room.css
+   Served copy:     static/css/room.css
+
+   Theming is driven entirely by CSS custom properties. Light is the default
+   in :root; the dark palette overrides the same tokens inside
+   @media (prefers-color-scheme: dark). No component below hardcodes a color,
+   spacing, or radius — everything resolves through a token.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Design tokens — light (default)
+   -------------------------------------------------------------------------- */
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --bg: #f4f5f8;
+  --bg-elevated: #ffffff;
+  --bg-inset: #eceef3;
+
+  /* Text */
+  --text: #1b1f27;
+  --text-muted: #6b7280;
+  --text-faint: #9aa1ad;
+
+  /* Brand / interaction */
+  --accent: #4f6ef7;
+  --accent-strong: #3b5bf0;
+  --accent-contrast: #ffffff;
+  --accent-soft: #e8edff;
+
+  /* Message bubbles */
+  --bubble-self: #e8edff;
+  --bubble-other: #ffffff;
+
+  /* Semantic */
+  --danger: #e5484d;
+  --success: #30a46c;
+  --warning: #f5a524;
+
+  /* Structure */
+  --border: #e2e5eb;
+  --border-strong: #d3d7df;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.06);
+  --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.14);
+  --radius: 14px;
+  --radius-sm: 9px;
+  --radius-pill: 999px;
+
+  /* Typography */
+  --font-sans: "Inter", "SF Pro Text", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code",
+    Menlo, Consolas, monospace;
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 180ms;
+
+  /* Layout */
+  --sidebar-w: 260px;
+  --header-h: 60px;
+  --composer-max: 220px;
+}
+
+/* --------------------------------------------------------------------------
+   2. Design tokens — dark
+   -------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* Surfaces — a muted indigo base, never pure black */
+    --bg: #1e1e2e;
+    --bg-elevated: #2a2a3c;
+    --bg-inset: #232334;
+
+    /* Text */
+    --text: #e7e7f2;
+    --text-muted: #a3a3bd;
+    --text-faint: #6f6f8a;
+
+    /* Brand / interaction */
+    --accent: #7c8cf8;
+    --accent-strong: #8b9aff;
+    --accent-contrast: #14141f;
+    --accent-soft: #343a63;
+
+    /* Message bubbles */
+    --bubble-self: #3a3f6b;
+    --bubble-other: #2a2a3c;
+
+    /* Semantic */
+    --danger: #f07178;
+    --success: #57c98a;
+    --warning: #f5b544;
+
+    /* Structure */
+    --border: #34344a;
+    --border-strong: #41415c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   3. Reset & base
+   -------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+  /* Subtle gradient replaces the legacy trianglify image background */
+  background-image: radial-gradient(
+      1200px 600px at 85% -10%,
+      var(--accent-soft),
+      transparent 60%
+    ),
+    radial-gradient(900px 500px at -10% 110%, var(--accent-soft), transparent 55%);
+  background-attachment: fixed;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* Custom scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: padding-box;
+}
+
+/* Accessible focus */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   4. Layout — three-zone grid
+   --------------------------------------------------------------------------
+   .room-layout
+   ├── header (room title + status)
+   ├── .sidebar (online users)
+   ├── .message-list (scrollable messages)
+   └── .composer (input area)
+   -------------------------------------------------------------------------- */
+.room-layout {
+  display: grid;
+  grid-template-areas:
+    "header header"
+    "sidebar messages"
+    "composer composer";
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--header-h) 1fr auto;
+  height: 100dvh;
+  max-width: 1200px;
+  margin: 0 auto;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+
+/* Header */
+.room-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.room-header .room-title {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-header .room-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Connection status indicator — client sets text: connected/connecting/disconnected */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background var(--dur) var(--ease);
+}
+
+.status.connected {
+  color: var(--success);
+}
+.status.connected::before {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.status.connecting {
+  color: var(--warning);
+}
+.status.connecting::before {
+  background: var(--warning);
+  animation: status-pulse 1.2s var(--ease) infinite;
+}
+
+.status.disconnected {
+  color: var(--danger);
+}
+.status.disconnected::before {
+  background: var(--danger);
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Sidebar — online user list */
+.sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.sidebar .sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar .sidebar-head .count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.user-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px 12px;
+  list-style: none;
+  margin: 0;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.user-item:hover {
+  background: var(--bg-inset);
+}
+
+.user-item .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  flex: none;
+}
+
+.user-item .uname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-item.cur {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   5. Message list
+   -------------------------------------------------------------------------- */
+.message-list {
+  grid-area: messages;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 22px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overscroll-behavior: contain;
+}
+
+/* Message bubble */
+.message {
+  display: flex;
+  flex-direction: column;
+  max-width: min(78%, 640px);
+  padding: 9px 13px;
+  border-radius: var(--radius);
+  background: var(--bubble-other);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  animation: msg-in var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.message:hover {
+  border-color: var(--border-strong);
+}
+
+/* Self messages — accent-tinted bubble, aligned right */
+.message.self {
+  align-self: flex-end;
+  background: var(--bubble-self);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+/* Message meta row */
+.message .meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 12px;
+}
+
+.message .nickname {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.message .name {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.message .uid {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.message .time {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.message .msg {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* Linkified URLs */
+.link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.link:hover {
+  color: var(--accent-strong);
+}
+
+/* Highlighted @mention messages */
+.message.highlight {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent),
+    var(--shadow);
+}
+
+/* System messages — centered gray */
+.sys-msg {
+  align-self: center;
+  max-width: 90%;
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-align: center;
+  animation: msg-in var(--dur) var(--ease);
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   6. Composer
+   -------------------------------------------------------------------------- */
+.composer {
+  grid-area: composer;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.composer .composer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.composer input[type="text"],
+.composer textarea {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.composer input[type="text"]:focus,
+.composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+#name-input {
+  width: 120px;
+  flex: none;
+}
+
+/* Auto-growing message textarea */
+.msg-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+
+#msg-input {
+  width: 100%;
+  min-height: 42px;
+  max-height: var(--composer-max);
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.45;
+}
+
+/* Color pickers */
+.color-picker {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.color-picker input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.color-picker .swatch {
+  position: absolute;
+  inset: 6px;
+  border-radius: 5px;
+  pointer-events: none;
+}
+
+/* Send button */
+#send-btn {
+  flex: none;
+  height: 42px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+#send-btn:hover {
+  background: var(--accent-strong);
+}
+
+#send-btn:active {
+  transform: translateY(1px);
+}
+
+#send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   7. Toast — "Someone mentions you"
+   -------------------------------------------------------------------------- */
+.toast {
+  position: fixed;
+  top: calc(var(--header-h) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 9px 18px;
+  border-radius: var(--radius-pill);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 550;
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  pointer-events: none;
+  animation: toast-in 0.3s var(--ease) forwards;
+}
+
+.toast.show {
+  opacity: 1;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   8. Responsive — narrow screens collapse to single column
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .room-layout {
+    grid-template-areas:
+      "header"
+      "messages"
+      "composer";
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--header-h) 1fr auto;
+  }
+
+  /* Sidebar becomes a collapsible top strip */
+  .sidebar {
+    grid-area: messages;
+    display: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 40vh;
+  }
+
+  .sidebar.open {
+    display: flex;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+  }
+
+  .message {
+    max-width: 92%;
+  }
+
+  .composer {
+    padding: 10px 10px 12px;
+  }
+
+  #name-input {
+    width: 96px;
+  }
+
+  #send-btn {
+    padding: 0 16px;
+  }
+}
+
+/* Sidebar toggle button — hidden on desktop, shown on mobile */
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg-inset);
+}
+
+/* --------------------------------------------------------------------------
+   9. Reduced motion
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
