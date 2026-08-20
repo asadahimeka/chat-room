@@ -4,7 +4,7 @@ export interface Config {
 }
 
 const DEFAULT_PORT = 3000
-const DEFAULT_DB_PATH = './msg.db'
+const DEFAULT_DB_PATH = './db/msg.db'
 
 export function loadConfig(
   env: Record<string, string | undefined>,

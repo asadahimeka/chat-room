@@ -5,7 +5,7 @@ describe('loadConfig', () => {
   test('uses default port 3000 and dbPath ./msg.db when env is empty', () => {
     const config = loadConfig({})
     expect(config.port).toBe(3000)
-    expect(config.dbPath).toBe('./msg.db')
+    expect(config.dbPath).toBe('./db/msg.db')
   })
 
   test('overrides port and dbPath from env', () => {
