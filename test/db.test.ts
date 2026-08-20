@@ -76,7 +76,7 @@ describe('time column type', () => {
 
 describe('schema compatibility with the real msg.db', () => {
   // Read-only open of the real DB — this test must never write.
-  const realDbPath = path.resolve(import.meta.dir, '../msg.db')
+  const realDbPath = path.resolve(import.meta.dir, '../db/msg.db')
 
   test('PRAGMA table_info matches the legacy baseline exactly', () => {
     const db = new Database(realDbPath, { readonly: true })
