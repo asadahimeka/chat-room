@@ -116,6 +116,19 @@ function init(): void {
   nameColor.addEventListener('input', () => syncSwatch(nameColor, nameSwatch))
   msgColor.addEventListener('input', () => syncSwatch(msgColor, msgSwatch))
 
+  const themeToggle = document.getElementById('theme-toggle') as HTMLButtonElement | null
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'
+      document.documentElement.dataset.theme = next
+      try {
+        localStorage.setItem('theme', next)
+      } catch {
+        // storage unavailable (private mode etc.) — theme still switches for this page
+      }
+    })
+  }
+
   try {
     blockList = JSON.parse(localStorage.getItem('blockList') || '[]') || []
   } catch {
@@ -303,12 +316,12 @@ function init(): void {
   }
 
   function autoGrow(): void {
-    msgInput.style.overflow = 'hidden'
-    msgInput.style.height = '0px'
-    let height = msgInput.scrollHeight <= 40 ? msgInput.scrollHeight - 19 : msgInput.scrollHeight
-    if (height >= 120) msgInput.style.overflow = ''
-    msgInput.style.height = `${height}px`
+    msgInput.style.height = 'auto'
+    const max = parseInt(getComputedStyle(msgInput).maxHeight, 10) || 220
+    msgInput.style.height = `${Math.min(msgInput.scrollHeight, max)}px`
+    msgInput.style.overflowY = msgInput.scrollHeight > max ? 'auto' : 'hidden'
   }
+  autoGrow()
 
   function send(): void {
     const name = nameInput.value
@@ -360,6 +373,10 @@ function init(): void {
           userInfo = user
           if (!getCookie('uid')) setCookie('uid', user.uid)
           nameInput.value = user.name || user.uid
+          // History rendered before init had no identity — tag own bubbles now.
+          msgList.querySelectorAll<HTMLElement>('.message[data-uid]').forEach((n) => {
+            n.classList.toggle('self', n.dataset.uid === user.uid)
+          })
           break
         }
         case 'online': {
@@ -434,6 +451,8 @@ function init(): void {
             msgcolor: m.msgcolor,
           })
         }
+        // Initial load lands the reader on the newest message.
+        msgList.scrollTop = msgList.scrollHeight
         connect()
       })
       .catch(() => {

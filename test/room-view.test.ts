@@ -56,10 +56,16 @@ describe('renderRoomPage room page', () => {
     expect(html).not.toContain('http://')
   })
 
-  it('contains no inline <script> blocks', () => {
+  it('contains no inline <script> blocks except the theme bootstrap', () => {
     const html = renderRoomPage({ roomId: '@demo' })
-    // The only script tags allowed are the JSON data injection and the module src reference.
-    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/json")[^>]*>/)
+    // Allowed inline scripts: the JSON data injection and the theme bootstrap
+    // (must run before paint to avoid a theme flash). Everything else must be
+    // an external module reference.
+    const stripped = html.replace(
+      /<script>[\s\S]*?localStorage\.getItem\('theme'[\s\S]*?<\/script>/,
+      '',
+    )
+    expect(stripped).not.toMatch(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/json")[^>]*>/)
   })
 
   it('contains all 10 contract element IDs', () => {

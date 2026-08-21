@@ -118,10 +118,14 @@ describe('schema compatibility with the real msg.db', () => {
     }
   })
 
-  test('SELECT COUNT(*) matches the baseline 14 rows', () => {
+  test('seed data intact — demo room keeps its 14 baseline rows', () => {
     const db = new Database(realDbPath, { readonly: true })
     try {
-      const row = db.query('SELECT COUNT(*) AS count FROM tb_msg').get() as { count: number }
+      // Room-scoped on purpose: total COUNT grows with legitimate chat usage,
+      // but the 14 seed rows must never change (zero-migration guarantee).
+      const row = db
+        .query("SELECT COUNT(*) AS count FROM tb_msg WHERE room = 'demo'")
+        .get() as { count: number }
       expect(row.count).toBe(14)
     } finally {
       db.close()
