@@ -87,10 +87,13 @@ function init(): void {
   const msgList = el<HTMLDivElement>('msg-list')
   const userList = el<HTMLDivElement>('user-list')
   const onlineCount = el<HTMLSpanElement>('online-count')
+  const onlineCountSide = el<HTMLSpanElement>('online-count-side')
   const nameInput = el<HTMLInputElement>('name-input')
   const msgInput = el<HTMLTextAreaElement>('msg-input')
   const nameColor = el<HTMLInputElement>('name-color')
   const msgColor = el<HTMLInputElement>('msg-color')
+  const nameSwatch = el<HTMLSpanElement>('name-swatch')
+  const msgSwatch = el<HTMLSpanElement>('msg-swatch')
   const sendBtn = el<HTMLButtonElement>('send-btn')
   const header = el<HTMLElement>('room-header')
 
@@ -105,6 +108,14 @@ function init(): void {
   let loading = false
   let finished = false
 
+  function syncSwatch(input: HTMLInputElement, swatch: HTMLElement | null): void {
+    if (swatch) swatch.style.background = input.value
+  }
+  syncSwatch(nameColor, nameSwatch)
+  syncSwatch(msgColor, msgSwatch)
+  nameColor.addEventListener('input', () => syncSwatch(nameColor, nameSwatch))
+  msgColor.addEventListener('input', () => syncSwatch(msgColor, msgSwatch))
+
   try {
     blockList = JSON.parse(localStorage.getItem('blockList') || '[]') || []
   } catch {
@@ -112,12 +123,17 @@ function init(): void {
   }
 
   function setStatus(text: string, cls: string): void {
-    header.textContent = ''
-    const span = document.createElement('span')
-    span.textContent = text
-    header.appendChild(span)
-    header.classList.remove('connected', 'connecting', 'disconnected')
-    header.classList.add(cls)
+    const statusEl = header.querySelector('.status') as HTMLElement | null
+    if (!statusEl) return
+    let textEl = statusEl.querySelector('.status-text') as HTMLElement | null
+    if (!textEl) {
+      textEl = document.createElement('span')
+      textEl.className = 'status-text'
+      statusEl.appendChild(textEl)
+    }
+    textEl.textContent = text
+    statusEl.classList.remove('connected', 'connecting', 'disconnected')
+    statusEl.classList.add(cls)
   }
 
   function updateTitle(online: number): void {
@@ -151,6 +167,14 @@ function init(): void {
       node.dataset.uid = item.uid
       if (userInfo && item.uid === userInfo.uid) node.classList.add('self')
 
+      const avatar = document.createElement('span')
+      avatar.className = 'avatar'
+      avatar.style.background = item.namecolor || '#117743'
+      avatar.textContent = (item.name ?? '?').charAt(0).toUpperCase()
+
+      const bubble = document.createElement('div')
+      bubble.className = 'bubble'
+
       const nickname = document.createElement('span')
       nickname.className = 'nickname'
       nickname.dataset.uid = item.uid
@@ -179,8 +203,10 @@ function init(): void {
       msgSpan.style.color = item.msgcolor || '#3d3d3d'
       msgSpan.textContent = msg
 
-      node.appendChild(nickname)
-      node.appendChild(msgSpan)
+      bubble.appendChild(nickname)
+      bubble.appendChild(msgSpan)
+      node.appendChild(avatar)
+      node.appendChild(bubble)
     }
 
     if (position === 'before') {
@@ -190,12 +216,23 @@ function init(): void {
       if (scrollFlag) msgList.scrollTop = msgList.scrollHeight
     }
 
+    // Group consecutive messages from the same user (avatar/meta hidden via .threaded)
+    if (node.classList.contains('message')) {
+      const sibling = (
+        position === 'before' ? node.nextElementSibling : node.previousElementSibling
+      ) as HTMLElement | null
+      if (sibling && sibling.classList.contains('message') && sibling.dataset.uid === node.dataset.uid) {
+        node.classList.add('threaded')
+      }
+    }
+
     const msgEl = node.querySelector('.msg')
     if (msgEl) linkify(msgEl as HTMLElement)
   }
 
   function renderOnline(users: JoinedUser[]): void {
     onlineCount.textContent = String(users.length)
+    if (onlineCountSide) onlineCountSide.textContent = String(users.length)
     updateTitle(users.length)
     userList.textContent = ''
     for (const u of users) {
@@ -232,6 +269,7 @@ function init(): void {
     action.style.position = 'fixed'
     action.style.top = `${rect.top - 30}px`
     action.style.left = `${rect.left}px`
+    action.style.setProperty('--transform-origin', 'top left')
 
     const atLink = document.createElement('a')
     atLink.href = 'javascript:;'
@@ -469,6 +507,14 @@ function init(): void {
     const name = target.dataset.name
     if (uid && name) fillMention(name, uid)
   })
+
+  const sidebar = document.querySelector('.sidebar') as HTMLElement | null
+  const sidebarToggle = document.querySelector('.sidebar-toggle') as HTMLElement | null
+  if (sidebar && sidebarToggle) {
+    sidebarToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('open')
+    })
+  }
 
   msgList.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement).closest('.nickname') as HTMLElement | null

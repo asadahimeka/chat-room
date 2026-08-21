@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts",
+    "dev": "bun run dev:build & bun run dev:server",
     "test": "bun test",
-    "build": "bun build ./src/views/room.client.ts --outdir ./static/js --format=esm --target=browser",
+    "build": "bun build ./src/views/room.client.ts --outdir ./static/js --format=esm --target=browser --minify",
+    "dev:server": "bun --watch run src/index.ts",
+    "dev:build": "bun build --watch ./src/views/room.client.ts --outdir ./static/js --format=esm --target=browser",
     "typecheck": "bunx tsc --noEmit"
   },
   "keywords": [],

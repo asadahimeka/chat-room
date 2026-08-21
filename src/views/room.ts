@@ -8,7 +8,7 @@
  *
  * ── DOM CONTRACT (the client module depends on these IDs) ─────────────
  *   #room-header   header bar
- *   #online-count  online count span
+ *   #online-count  online count span (header)
  *   #user-list     sidebar user list
  *   #msg-list      message list container
  *   #name-input    nickname input
@@ -18,6 +18,11 @@
  *   #send-btn      send button
  *   #toast         toast element
  * ──────────────────────────────────────────────────────────────────────
+ *
+ * Additional structural hooks (new, not part of the hard contract):
+ *   #online-count-side  sidebar online count
+ *   #name-swatch        name color swatch preview
+ *   #msg-swatch         message color swatch preview
  *
  * Contract class names (matching the CSS task): `.room-layout`, `.sidebar`,
  * `.message-list`, `.composer`, `.status`, `.toast`.
@@ -54,10 +59,24 @@ export function renderRoomPage({ roomId, title }: RoomPageProps): string {
       </head>
       <body>
         <div class="room-layout">
-          <header id="room-header" class="status">
-            <span id="online-count">0</span>
+          <header id="room-header" class="room-header">
+            <h1 class="room-title">${Bun.escapeHTML(title || roomId)}</h1>
+            <div class="room-meta">
+              <span class="online-pill">
+                <span id="online-count">0</span>
+                <span class="online-label">online</span>
+              </span>
+              <span class="status"><span class="status-text"></span></span>
+              <button class="sidebar-toggle" type="button" aria-label="Toggle online list">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </button>
+            </div>
           </header>
           <aside class="sidebar">
+            <div class="sidebar-head">
+              <span>Who's here</span>
+              <span class="count" id="online-count-side">0</span>
+            </div>
             <div id="user-list"></div>
           </aside>
           <main class="message-list">
@@ -65,10 +84,23 @@ export function renderRoomPage({ roomId, title }: RoomPageProps): string {
           </main>
           <footer class="composer">
             <input id="name-input" type="text" placeholder="nickname" maxlength="32">
-            <textarea id="msg-input" placeholder="some text..." maxlength="1000"></textarea>
-            <input id="name-color" type="color" value="#117743">
-            <input id="msg-color" type="color" value="#3d3d3d">
-            <button id="send-btn" type="button">Send</button>
+            <div class="composer-left">
+              <label class="color-picker" title="Name color">
+                <span class="swatch" id="name-swatch"></span>
+                <input id="name-color" type="color" value="#117743">
+              </label>
+              <label class="color-picker" title="Message color">
+                <span class="swatch" id="msg-swatch"></span>
+                <input id="msg-color" type="color" value="#3d3d3d">
+              </label>
+            </div>
+            <div class="msg-input-wrap">
+              <textarea id="msg-input" placeholder="Say something…" maxlength="1000"></textarea>
+            </div>
+            <button id="send-btn" type="button">
+              <svg class="send-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              <span class="send-label">Send</span>
+            </button>
           </footer>
         </div>
         <div id="toast" class="toast"></div>
