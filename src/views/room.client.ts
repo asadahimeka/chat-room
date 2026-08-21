@@ -280,7 +280,7 @@ function init(): void {
     const action = document.createElement('div')
     action.className = 'action'
     action.style.position = 'fixed'
-    action.style.top = `${rect.top - 30}px`
+    action.style.top = `${Math.max(8, rect.top - 48)}px`
     action.style.left = `${rect.left}px`
     action.style.setProperty('--transform-origin', 'top left')
 
@@ -535,7 +535,10 @@ function init(): void {
     })
   }
 
-  msgList.addEventListener('click', (e) => {
+  // Delegated at document level (not #msg-list): the dismiss-once listener is
+  // also on document, and a listener added at a node the opening click has not
+  // reached yet would fire for that same click — instantly closing the popover.
+  document.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement).closest('.nickname') as HTMLElement | null
     if (!target) return
     const uid = target.dataset.uid
