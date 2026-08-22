@@ -45,6 +45,20 @@ export function journeyAdReplace(msg: string): string {
 }
 
 /**
+ * Reverses the server-side xss() entity escaping so markdown line-start
+ * syntax (`> quote`) matches again. Rendering stays createElement/textContent,
+ * which re-escapes everything safely — this cannot introduce HTML injection.
+ */
+export function unescapeEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+/**
  * Maps a POST /upload HTTP status to a user-facing toast message.
  * Mirrors the error contract in src/router/upload.ts (400/413/415/429/503).
  */
@@ -248,7 +262,7 @@ function init(): void {
       span.textContent = item.msg
       node.appendChild(span)
     } else {
-      let msg = item.msg
+      let msg = unescapeEntities(item.msg)
       if (roomId === 'journey-ad.github') msg = journeyAdReplace(msg)
 
       node = document.createElement('div')

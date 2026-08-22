@@ -10,6 +10,7 @@ import {
   genSid,
   isBlocked,
   journeyAdReplace,
+  unescapeEntities,
   uploadErrorMsg,
   inIframe,
   isMobile,
@@ -21,6 +22,7 @@ import {
   serializeOutgoingMeta,
   safeParseMeta,
 } from '../src/utils/render'
+import { parseMarkdown } from '../src/utils/markdown'
 
 describe('formatTime', () => {
   it('formats a unix-seconds timestamp as a locale string', () => {
@@ -106,6 +108,34 @@ describe('journeyAdReplace', () => {
 
   it('leaves other text unchanged', () => {
     expect(journeyAdReplace('hello world')).toBe('hello world')
+  })
+})
+
+describe('unescapeEntities', () => {
+  it('restores a leading quote marker', () => {
+    expect(unescapeEntities('&gt; quote')).toBe('> quote')
+  })
+
+  it('restores tags as literal text', () => {
+    expect(unescapeEntities('&lt;b&gt;hi&lt;/b&gt;')).toBe('<b>hi</b>')
+  })
+
+  it('does not double-unescape (ampersand replaced last)', () => {
+    expect(unescapeEntities('&amp;gt;')).toBe('&gt;')
+  })
+
+  it('restores ampersand and quotes', () => {
+    expect(unescapeEntities('&amp;')).toBe('&')
+    expect(unescapeEntities('&quot;x&quot;')).toBe('"x"')
+  })
+
+  it('leaves plain text unchanged', () => {
+    expect(unescapeEntities('hello')).toBe('hello')
+  })
+
+  it('feeds markdown parsing after unescaping (quote node)', () => {
+    const nodes = parseMarkdown(unescapeEntities('&gt; q'))
+    expect(nodes.some((n) => n.type === 'quote')).toBe(true)
   })
 })
 
