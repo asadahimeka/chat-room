@@ -119,9 +119,17 @@ describe('renderRoomPage room page', () => {
     }
   })
 
-  it('renders two composer icon buttons', () => {
+  it('contains the image upload button and hidden file input', () => {
     const html = renderRoomPage({ roomId: '@demo' })
-    expect(html.match(/class="composer-btn"/g)?.length).toBe(2)
+    expect(html).toContain('id="upload-btn"')
+    expect(html).toContain('id="upload-input"')
+    expect(html).toContain('accept="image/png,image/jpeg,image/gif,image/webp"')
+    expect(html).toContain('<input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>')
+  })
+
+  it('renders three composer icon buttons', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    expect(html.match(/class="composer-btn"/g)?.length).toBe(3)
   })
 
   it('marks the settings modal as a dialog', () => {

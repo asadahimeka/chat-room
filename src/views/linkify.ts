@@ -2,8 +2,9 @@
  * Safe URL linkification (Bun-native port of linkifyjs usage in room.ejs).
  *
  * Walks the text nodes of an element and wraps http/https/www URLs in
- * `<a target="_blank" rel="nofollow" class="link">` anchors using the DOM
- * API only — never innerHTML — so user content stays XSS-safe.
+ * `<a target="_blank" rel="nofollow noreferrer noopener" class="link">`
+ * anchors using the DOM API only — never innerHTML — so user content stays
+ * XSS-safe. The rel matches the anchors renderMarkdown produces.
  */
 
 const URL_RE = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/g
@@ -34,7 +35,7 @@ export function linkify(element: HTMLElement): void {
       const a = document.createElement('a')
       a.href = href
       a.target = '_blank'
-      a.rel = 'nofollow'
+      a.rel = 'nofollow noreferrer noopener'
       a.className = 'link'
       a.textContent = url
       fragment.appendChild(a)

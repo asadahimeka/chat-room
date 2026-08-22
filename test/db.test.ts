@@ -193,7 +193,7 @@ describe('schema compatibility with the real msg.db', () => {
   // Read-only open of the real DB — this test must never write.
   const realDbPath = path.resolve(import.meta.dir, '../db/msg.db')
 
-  test('PRAGMA table_info matches the legacy baseline exactly', () => {
+  test('PRAGMA table_info keeps the legacy 9-column baseline (meta optional)', () => {
     const db = new Database(realDbPath, { readonly: true })
     try {
       const cols = db
@@ -206,7 +206,8 @@ describe('schema compatibility with the real msg.db', () => {
         dflt_value: unknown
         pk: number
       }>
-      expect(cols.map((c) => c.name)).toEqual([
+      // The legacy 9 columns must be unchanged, in order.
+      expect(cols.slice(0, 9).map((c) => c.name)).toEqual([
         'id',
         'name',
         'room',
@@ -217,7 +218,7 @@ describe('schema compatibility with the real msg.db', () => {
         'msgcolor',
         'msg',
       ])
-      expect(cols.map((c) => c.type)).toEqual([
+      expect(cols.slice(0, 9).map((c) => c.type)).toEqual([
         'INTEGER',
         'VARCHAR (32)',
         'VARCHAR (32)',
@@ -228,6 +229,13 @@ describe('schema compatibility with the real msg.db', () => {
         'VARCHAR (7)',
         'VARCHAR (1000)',
       ])
+      // The sanctioned meta migration may or may not have run on this DB.
+      expect(cols.length).toBeGreaterThanOrEqual(9)
+      expect(cols.length).toBeLessThanOrEqual(10)
+      if (cols.length === 10) {
+        expect(cols[9].name).toBe('meta')
+        expect(cols[9].type).toBe('TEXT')
+      }
     } finally {
       db.close()
     }

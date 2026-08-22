@@ -10,6 +10,7 @@ import {
   genSid,
   isBlocked,
   journeyAdReplace,
+  uploadErrorMsg,
   inIframe,
   isMobile,
   parseRoomData,
@@ -105,6 +106,34 @@ describe('journeyAdReplace', () => {
 
   it('leaves other text unchanged', () => {
     expect(journeyAdReplace('hello world')).toBe('hello world')
+  })
+})
+
+describe('uploadErrorMsg', () => {
+  it('maps 400 to the profile-required message', () => {
+    expect(uploadErrorMsg(400)).toBe('Set a nickname and avatar before uploading')
+  })
+
+  it('maps 413 to the size-limit message', () => {
+    expect(uploadErrorMsg(413)).toBe('Image exceeds the size limit')
+  })
+
+  it('maps 415 to the unsupported-type message', () => {
+    expect(uploadErrorMsg(415)).toBe('Unsupported image type')
+  })
+
+  it('maps 429 to the quota message', () => {
+    expect(uploadErrorMsg(429)).toBe('Daily upload quota exceeded')
+  })
+
+  it('maps 503 to the storage message', () => {
+    expect(uploadErrorMsg(503)).toBe('Storage unavailable')
+  })
+
+  it('falls back to a generic message for unknown codes', () => {
+    expect(uploadErrorMsg(0)).toBe('Upload failed')
+    expect(uploadErrorMsg(500)).toBe('Upload failed')
+    expect(uploadErrorMsg(999)).toBe('Upload failed')
   })
 })
 

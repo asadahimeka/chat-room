@@ -44,6 +44,27 @@ export function journeyAdReplace(msg: string): string {
   return msg.replace(/\u53d8\u6001/g, '\u597d\u4eba')
 }
 
+/**
+ * Maps a POST /upload HTTP status to a user-facing toast message.
+ * Mirrors the error contract in src/router/upload.ts (400/413/415/429/503).
+ */
+export function uploadErrorMsg(code: number): string {
+  switch (code) {
+    case 400:
+      return 'Set a nickname and avatar before uploading'
+    case 413:
+      return 'Image exceeds the size limit'
+    case 415:
+      return 'Unsupported image type'
+    case 429:
+      return 'Daily upload quota exceeded'
+    case 503:
+      return 'Storage unavailable'
+    default:
+      return 'Upload failed'
+  }
+}
+
 export function inIframe(): boolean {
   if (typeof window === 'undefined') return false
   try {
@@ -746,6 +767,62 @@ function init(): void {
     const target = e.target as Node
     if (emojiPanel.contains(target) || emojiBtn.contains(target)) return
     emojiPanel.hidden = true
+  })
+
+  // ── Image upload (📷 → POST /upload → insert ![img](url)) ──────────────
+  let toastTimer: number | null = null
+  function showToast(text: string): void {
+    const toast = document.getElementById('toast')
+    if (!toast) return
+    toast.textContent = text
+    toast.classList.add('show')
+    if (toastTimer !== null) window.clearTimeout(toastTimer)
+    toastTimer = window.setTimeout(() => {
+      toast.classList.remove('show')
+      toastTimer = null
+    }, 3000)
+  }
+
+  const uploadBtn = el<HTMLButtonElement>('upload-btn')
+  const uploadInput = el<HTMLInputElement>('upload-input')
+
+  uploadBtn.addEventListener('click', () => {
+    uploadInput.click()
+  })
+
+  uploadInput.addEventListener('change', () => {
+    const file = uploadInput.files?.[0]
+    uploadInput.value = ''
+    if (!file) return
+
+    const fd = new FormData()
+    fd.append('file', file)
+
+    uploadBtn.disabled = true
+    fetch('/upload', { method: 'POST', body: fd })
+      .then(async (res) => {
+        if (res.status === 200) {
+          const data = (await res.json()) as { url?: unknown }
+          if (typeof data.url === 'string' && data.url.startsWith('https://')) {
+            const token = `![img](${data.url})`
+            const start = msgInput.selectionStart ?? msgInput.value.length
+            const end = msgInput.selectionEnd ?? start
+            msgInput.setRangeText(token, start, end, 'end')
+            msgInput.focus()
+            autoGrow()
+          } else {
+            showToast(uploadErrorMsg(0))
+          }
+        } else {
+          showToast(uploadErrorMsg(res.status))
+        }
+      })
+      .catch(() => {
+        showToast(uploadErrorMsg(0))
+      })
+      .finally(() => {
+        uploadBtn.disabled = false
+      })
   })
 
   setStatus('get record...', 'connecting')

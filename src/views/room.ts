@@ -119,6 +119,8 @@ export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string 
             </div>
             <button id="emoji-btn" class="composer-btn" type="button" aria-label="Emoji">😀</button>
             <button id="settings-btn" class="composer-btn" type="button" aria-label="Settings">⚙️</button>
+            <button id="upload-btn" class="composer-btn" type="button" aria-label="Upload image">📷</button>
+            <input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
             <button id="send-btn" type="button">
               <svg class="send-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
               <span class="send-label">Send</span>
