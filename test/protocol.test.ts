@@ -35,6 +35,21 @@ describe('protocol types', () => {
     expect(item.msg).toBe('hello')
   })
 
+  test('MsgItem carries optional meta', () => {
+    const item: MsgItem = {
+      name: 'alice',
+      room: 'demo',
+      uid: 'u1',
+      sid: 's1',
+      ts: 1700000000,
+      namecolor: '#fff',
+      msgcolor: '#000',
+      msg: 'hello',
+      meta: '{"bold":true}',
+    }
+    expect(item.meta).toBe('{"bold":true}')
+  })
+
   test('ClientMessage has no sid/room/ts (server completes them)', () => {
     const payload: ClientMessage = {
       uid: 'u1',
@@ -115,6 +130,29 @@ describe('protocol schemas', () => {
   })
 
   test('ClientEventSchema validates a well-formed message payload', () => {
+    const payload = {
+      type: 'message',
+      data: { uid: 'u1', name: 'alice', msg: 'hello', namecolor: '#fff', msgcolor: '#000' },
+    }
+    expect(clientCheck.Check(payload)).toBe(true)
+  })
+
+  test('ClientEventSchema accepts a message payload with valid meta', () => {
+    const payload = {
+      type: 'message',
+      data: {
+        uid: 'u1',
+        name: 'alice',
+        msg: 'hello',
+        namecolor: '#fff',
+        msgcolor: '#000',
+        meta: '{"bold":true,"font":"serif"}',
+      },
+    }
+    expect(clientCheck.Check(payload)).toBe(true)
+  })
+
+  test('ClientEventSchema accepts a message payload without meta (backward compat)', () => {
     const payload = {
       type: 'message',
       data: { uid: 'u1', name: 'alice', msg: 'hello', namecolor: '#fff', msgcolor: '#000' },

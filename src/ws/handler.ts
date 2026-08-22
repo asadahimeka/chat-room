@@ -22,6 +22,53 @@ interface WsLike {
   send(data: string): unknown
 }
 
+const META_KEYS = ['avatar', 'font', 'size', 'bold', 'italic', 'bubble'] as const
+
+/**
+ * Whitelist-sanitizes a client-supplied meta JSON string. Returns undefined
+ * (silently dropped) on any violation; invalid field values are dropped
+ * individually while valid siblings survive.
+ */
+export function sanitizeMeta(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  if (typeof raw !== 'string' || raw.length > 2048) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+  const obj = parsed as Record<string, unknown>
+  const cleaned: Record<string, unknown> = {}
+  for (const key of META_KEYS) {
+    const value = obj[key]
+    if (value === undefined) continue
+    switch (key) {
+      case 'font':
+        if (value === 'default' || value === 'serif' || value === 'mono') cleaned[key] = value
+        break
+      case 'size':
+        if (value === 'sm' || value === 'md' || value === 'lg') cleaned[key] = value
+        break
+      case 'bold':
+      case 'italic':
+        if (typeof value === 'boolean') cleaned[key] = value
+        break
+      case 'bubble':
+        if (value === 'default' || value === 'flat' || value === 'card' || value === 'minimal') cleaned[key] = value
+        break
+      case 'avatar':
+        if (typeof value === 'string' && (value.startsWith('https://') || value.startsWith('data:image'))) {
+          cleaned[key] = value
+        }
+        break
+    }
+  }
+  if (Object.keys(cleaned).length === 0) return undefined
+  return JSON.stringify(cleaned)
+}
+
 export function registerWs<App extends Elysia>(app: App, roomState: RoomState): App {
   const rooms = new Map<string, Set<WsLike>>()
 
@@ -75,6 +122,7 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
           msg: processInput(m.msg, true).substring(0, 1000),
           namecolor: sanitizeColor(m.namecolor, '#117743'),
           msgcolor: sanitizeColor(m.msgcolor, '#3d3d3d'),
+          meta: sanitizeMeta(m.meta),
         }
         broadcast(roomId, { type: 'msg', data: msgItem })
         if (roomId !== 'demo') db.setRecord(msgItem)

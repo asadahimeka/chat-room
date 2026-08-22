@@ -37,6 +37,8 @@ export type MsgItem = {
   namecolor: string
   msgcolor: string
   msg: string
+  /** Optional JSON string of render hints (avatar|font|size|bold|italic|bubble). */
+  meta?: string
 }
 
 export type ClientMessage = {
@@ -45,6 +47,8 @@ export type ClientMessage = {
   msg: string
   namecolor: string
   msgcolor: string
+  /** Optional JSON string of render hints; server sanitizes before broadcast. */
+  meta?: string
 }
 
 export type ServerEvent =
@@ -73,6 +77,7 @@ const MsgItemSchema = t.Object({
   namecolor: t.String(),
   msgcolor: t.String(),
   msg: t.String(),
+  meta: t.Optional(t.String()),
 })
 
 const ClientMessageSchema = t.Object({
@@ -81,6 +86,7 @@ const ClientMessageSchema = t.Object({
   msg: t.String(),
   namecolor: t.String(),
   msgcolor: t.String(),
+  meta: t.Optional(t.String()),
 })
 
 export const ServerEventSchema = t.Union([

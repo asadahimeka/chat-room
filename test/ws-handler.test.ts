@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
 import { RoomState } from '../src/ws/room-state'
-import { registerWs } from '../src/ws/handler'
+import { registerWs, sanitizeMeta } from '../src/ws/handler'
 import { db } from '../src/db'
 import { randomRoomName, tmpDbPath } from './setup'
 
@@ -52,6 +52,48 @@ function connect(url: string, headers: Record<string, string>): Promise<{
       })
   })
 }
+
+describe('sanitizeMeta', () => {
+  test('valid meta passes through cleaned', () => {
+    const raw = '{"bold":true,"font":"serif","size":"lg","bubble":"card","italic":false,"avatar":"https://example.com/a.png"}'
+    expect(sanitizeMeta(raw)).toBe(
+      '{"avatar":"https://example.com/a.png","font":"serif","size":"lg","bold":true,"italic":false,"bubble":"card"}',
+    )
+  })
+
+  test('rejects meta longer than 2048 chars', () => {
+    expect(sanitizeMeta(`{"msg":"${'a'.repeat(2100)}"}`)).toBeUndefined()
+  })
+
+  test('rejects bad JSON', () => {
+    expect(sanitizeMeta('{not json')).toBeUndefined()
+  })
+
+  test('rejects array and primitive values', () => {
+    expect(sanitizeMeta('[1,2,3]')).toBeUndefined()
+    expect(sanitizeMeta('"hello"')).toBeUndefined()
+    expect(sanitizeMeta('42')).toBeUndefined()
+    expect(sanitizeMeta('null')).toBeUndefined()
+  })
+
+  test('strips unknown fields', () => {
+    expect(sanitizeMeta('{"bold":true,"xss":"a"}')).toBe('{"bold":true}')
+  })
+
+  test('drops only the invalid field, keeps valid siblings', () => {
+    expect(sanitizeMeta('{"font":"Comic Sans","bold":true}')).toBe('{"bold":true}')
+  })
+
+  test('rejects javascript: avatar', () => {
+    expect(sanitizeMeta('{"avatar":"javascript:alert(1)"}')).toBeUndefined()
+  })
+
+  test('returns undefined when nothing survives or input is falsy', () => {
+    expect(sanitizeMeta('{"xss":"a"}')).toBeUndefined()
+    expect(sanitizeMeta(undefined)).toBeUndefined()
+    expect(sanitizeMeta('')).toBeUndefined()
+  })
+})
 
 describe('ws handler — connection lifecycle + broadcast pipeline', () => {
   test('both clients receive init + online on connect', async () => {
@@ -136,6 +178,47 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
     const rows = db.getRecord(room)
     expect(rows).toHaveLength(1)
     expect(rows[0].msg).toBe('hello world')
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
+
+  test('message meta is sanitized before broadcast and persisted to DB', async () => {
+    const room = randomRoomName('t6')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    a.ws.send(
+      JSON.stringify({
+        type: 'message',
+        data: {
+          uid: 'u1',
+          name: 'Alice',
+          msg: 'styled',
+          namecolor: '#ff0000',
+          msgcolor: '#00ff00',
+          meta: '{"bold":true,"evil":"x"}',
+        },
+      }),
+    )
+
+    const msg = await b.waitFor('msg')
+    const item = msg[0].data as Record<string, unknown>
+    expect(item.meta).toBe('{"bold":true}')
+
+    const rows = db.getRecord(room)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].meta).toBe('{"bold":true}')
 
     a.ws.close()
     b.ws.close()
