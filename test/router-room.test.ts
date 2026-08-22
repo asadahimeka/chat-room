@@ -48,7 +48,7 @@ describe('room router', () => {
     db.setRecord(sample({ name: 'u3', ts: 300 }))
   })
 
-  test('GET /@x/record?limit=2&offset=0 returns 2 rows with legacy field names', async () => {
+  test('GET /@x/record?limit=2&offset=0 returns 2 rows with the full field set including meta', async () => {
     const res = await roomRouter.handle(
       new Request('http://localhost/@x/record?limit=2&offset=0'),
     )
@@ -58,9 +58,9 @@ describe('room router', () => {
     expect(body).toHaveLength(2)
     // Ordered by time DESC -> u3, u2
     expect(body.map((r: { name: string }) => r.name)).toEqual(['u3', 'u2'])
-    // Field names must match legacy exactly.
+    // Field names include the T1 `meta` column (SELECT * in getRecord).
     expect(Object.keys(body[0]).sort()).toEqual(
-      ['id', 'name', 'room', 'uid', 'sid', 'time', 'namecolor', 'msgcolor', 'msg'].sort(),
+      ['id', 'name', 'room', 'uid', 'sid', 'time', 'namecolor', 'msgcolor', 'msg', 'meta'].sort(),
     )
   })
 

@@ -11,6 +11,8 @@ export interface MsgRow {
   namecolor: string
   msgcolor: string
   msg: string
+  // Legacy rows predating the meta column read back as NULL.
+  meta: string | null
 }
 
 export interface MsgItem {
@@ -22,6 +24,8 @@ export interface MsgItem {
   namecolor: string
   msgcolor: string
   msg: string
+  // Optional JSON string (e.g. '{"bold":true}'); undefined → stored as NULL.
+  meta?: string
 }
 
 export interface Db {
@@ -29,7 +33,8 @@ export interface Db {
   setRecord(msgItem: MsgItem): { lastInsertRowid: number; changes: number }
 }
 
-// Character-identical to the legacy db/sqlite.js DDL — zero migration.
+// The 9 legacy columns are character-identical to the legacy db/sqlite.js DDL;
+// `meta` is the only addition (nullable, so old rows read back as NULL).
 const DDL = `CREATE TABLE IF NOT EXISTS tb_msg (
     id        INTEGER        PRIMARY KEY AUTOINCREMENT
                              NOT NULL
@@ -41,7 +46,8 @@ const DDL = `CREATE TABLE IF NOT EXISTS tb_msg (
     time      INT (10)       NOT NULL,
     namecolor VARCHAR (7)    NOT NULL,
     msgcolor  VARCHAR (7)    NOT NULL,
-    msg       VARCHAR (1000) NOT NULL
+    msg       VARCHAR (1000) NOT NULL,
+    meta      TEXT
 );`
 
 export function createDb(dbPath: string): Db {
@@ -58,6 +64,15 @@ export function createDb(dbPath: string): Db {
 
   db.run(DDL)
 
+  // Idempotent migration for legacy DBs created before the `meta` column
+  // existed. New DBs already have `meta` from the DDL above, so this ALTER
+  // throws "duplicate column name: meta" and is silently ignored.
+  try {
+    db.run('ALTER TABLE tb_msg ADD COLUMN meta TEXT')
+  } catch {
+    // Column already exists (new DB or already-migrated legacy DB); ignore.
+  }
+
   // Positional `?` params are equivalent to the legacy named `$name` params:
   // SQLite binds them in declaration order, so the two styles are
   // interchangeable for the same column list.
@@ -65,7 +80,7 @@ export function createDb(dbPath: string): Db {
     'SELECT * FROM tb_msg WHERE `room` = ? ORDER BY `time` DESC LIMIT ? OFFSET ?',
   )
   const setRecordStmt = db.query(
-    'INSERT INTO tb_msg(name, room, uid, sid, time, namecolor, msgcolor, msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tb_msg(name, room, uid, sid, time, namecolor, msgcolor, msg, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
 
   return {
@@ -73,14 +88,25 @@ export function createDb(dbPath: string): Db {
       return getRecordStmt.all(roomId, limit, offset) as MsgRow[]
     },
     setRecord(msgItem) {
-      const { name, room, uid, sid, ts: time, namecolor, msgcolor, msg } = msgItem
-      const result = setRecordStmt.run(name, room, uid, sid, time, namecolor, msgcolor, msg)
+      const { name, room, uid, sid, ts: time, namecolor, msgcolor, msg, meta } = msgItem
+      const result = setRecordStmt.run(name, room, uid, sid, time, namecolor, msgcolor, msg, meta ?? null)
       // safeIntegers defaults to false, so these are always JS numbers.
       return {
         lastInsertRowid: result.lastInsertRowid as number,
         changes: result.changes as number,
       }
     },
+  }
+}
+
+// Shared by the record route and the render pipeline: legacy rows have no
+// meta (NULL), and malformed JSON must never crash the caller.
+export function parseMsgMeta(raw: string | null): Record<string, unknown> | null {
+  if (raw === null) return null
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return null
   }
 }
 

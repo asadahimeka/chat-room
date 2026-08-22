@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
-import { createDb } from '../src/db/index.ts'
+import { createDb, parseMsgMeta } from '../src/db/index.ts'
 import type { MsgItem } from '../src/db/index.ts'
+import { tmpDbPath } from './setup.ts'
 
 const sample = (overrides: Partial<MsgItem> = {}): MsgItem => ({
   name: 'alice',
@@ -71,6 +72,120 @@ describe('time column type', () => {
     expect(typeof rows[0].time).toBe('number')
     expect(Number.isInteger(rows[0].time)).toBe(true)
     expect(rows[0].time).toBe(known)
+  })
+})
+
+describe('meta column', () => {
+  test('new DB schema includes meta as the 10th column (TEXT)', () => {
+    // `:memory:` is per-connection and bun:sqlite has no shared-cache URI, so
+    // inspect the schema of a fresh file DB through a second connection.
+    const dbPath = tmpDbPath()
+    createDb(dbPath)
+    const raw = new Database(dbPath, { readonly: true })
+    try {
+      const cols = raw.query('PRAGMA table_info(tb_msg)').all() as Array<{
+        name: string
+        type: string
+      }>
+      expect(cols.map((c) => c.name)).toEqual([
+        'id',
+        'name',
+        'room',
+        'uid',
+        'sid',
+        'time',
+        'namecolor',
+        'msgcolor',
+        'msg',
+        'meta',
+      ])
+      expect(cols[9].type).toBe('TEXT')
+    } finally {
+      raw.close()
+    }
+  })
+
+  test('setRecord with meta persists it and getRecord reads it back', () => {
+    const db = createDb(':memory:')
+    db.setRecord(sample({ meta: '{"bold":true}' }))
+    const rows = db.getRecord('demo')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].meta).toBe('{"bold":true}')
+  })
+
+  test('setRecord without meta stores NULL', () => {
+    const db = createDb(':memory:')
+    db.setRecord(sample())
+    const rows = db.getRecord('demo')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].meta).toBeNull()
+  })
+})
+
+describe('parseMsgMeta', () => {
+  test('parses valid JSON objects', () => {
+    expect(parseMsgMeta('{"a":1}')).toEqual({ a: 1 })
+  })
+
+  test('returns null for malformed JSON', () => {
+    expect(parseMsgMeta('{bad json')).toBeNull()
+  })
+
+  test('returns null for null input', () => {
+    expect(parseMsgMeta(null)).toBeNull()
+  })
+
+  test('returns null for empty string', () => {
+    expect(parseMsgMeta('')).toBeNull()
+  })
+})
+
+describe('legacy DB migration', () => {
+  test('ALTER adds meta to a 9-column legacy DB without error', () => {
+    const dbPath = tmpDbPath()
+    // Recreate the original 9-column schema exactly as the legacy DDL had it.
+    const legacy = new Database(dbPath)
+    legacy.run(`CREATE TABLE tb_msg (
+      id        INTEGER        PRIMARY KEY AUTOINCREMENT
+                               NOT NULL
+                               UNIQUE,
+      name      VARCHAR (32)   NOT NULL,
+      room      VARCHAR (32)   NOT NULL,
+      uid       VARCHAR (7)    NOT NULL,
+      sid       VARCHAR (7)    NOT NULL,
+      time      INT (10)       NOT NULL,
+      namecolor VARCHAR (7)    NOT NULL,
+      msgcolor  VARCHAR (7)    NOT NULL,
+      msg       VARCHAR (1000) NOT NULL
+    )`)
+    legacy.close()
+
+    // createDb must not throw on the legacy schema.
+    const db = createDb(dbPath)
+    expect(db.getRecord('demo')).toEqual([])
+
+    const raw = new Database(dbPath, { readonly: true })
+    try {
+      const cols = raw.query('PRAGMA table_info(tb_msg)').all() as Array<{
+        name: string
+        type: string
+      }>
+      expect(cols.map((c) => c.name)).toEqual([
+        'id',
+        'name',
+        'room',
+        'uid',
+        'sid',
+        'time',
+        'namecolor',
+        'msgcolor',
+        'msg',
+        'meta',
+      ])
+      expect(cols[9].type).toBe('TEXT')
+    } finally {
+      raw.close()
+    }
   })
 })
 
