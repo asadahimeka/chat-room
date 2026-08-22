@@ -57,7 +57,10 @@ describe('renderRoomPage room page', () => {
   it('contains no CDN or external script references', () => {
     const html = renderRoomPage({ roomId: '@demo' })
     expect(html).not.toContain('cdn.jsdelivr')
-    expect(html).not.toContain('https://')
+    // External references only via src/href attributes; the avatar input's
+    // `placeholder="https://..."` is inert text, not a resource reference.
+    expect(html).not.toContain('src="https://')
+    expect(html).not.toContain('href="https://')
     expect(html).not.toContain('http://')
   })
 
@@ -95,5 +98,35 @@ describe('renderRoomPage room page', () => {
     for (const cls of ['room-layout', 'sidebar', 'message-list', 'composer', 'status', 'toast']) {
       expect(html).toContain(cls)
     }
+  })
+
+  it('contains the settings modal and emoji panel controls', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    for (const id of [
+      'emoji-btn',
+      'settings-btn',
+      'emoji-panel',
+      'settings-modal',
+      'settings-close',
+      'set-font',
+      'set-size',
+      'set-bold',
+      'set-italic',
+      'set-avatar',
+      'set-bubble',
+    ]) {
+      expect(html).toContain(`id="${id}"`)
+    }
+  })
+
+  it('renders two composer icon buttons', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    expect(html.match(/class="composer-btn"/g)?.length).toBe(2)
+  })
+
+  it('marks the settings modal as a dialog', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    expect(html).toContain('role="dialog"')
+    expect(html).toContain('aria-modal="true"')
   })
 })

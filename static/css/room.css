@@ -398,7 +398,6 @@ body {
   align-items: center;
   gap: 11px;
   padding: 8px 10px;
-  border-radius: var(--radius-sm);
   font-size: 13.5px;
   color: var(--text);
   cursor: pointer;
@@ -522,7 +521,8 @@ body {
   background: var(--bubble-self);
   border-left: 0;
   border-right: 1px solid var(--bubble-self-border);
-  border-bottom: 1px solid var(--bubble-self-border);
+  border-top: 1px solid var(--bubble-self-border);
+  border-bottom: 0;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 3px;
 }
@@ -947,10 +947,10 @@ body {
 
   .composer {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto auto;
     grid-template-areas:
-      "name colors"
-      "input send";
+      "name colors colors colors"
+      "input emoji settings send";
     align-items: end;
     gap: 8px 10px;
     padding: 10px 10px 12px;
@@ -969,6 +969,14 @@ body {
 
   .msg-input-wrap {
     grid-area: input;
+  }
+
+  #emoji-btn {
+    grid-area: emoji;
+  }
+
+  #settings-btn {
+    grid-area: settings;
   }
 
   #send-btn {
@@ -1013,5 +1021,289 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   12. Composer icon buttons, settings modal, emoji panel, bubble presets
+   -------------------------------------------------------------------------- */
+
+/* The `hidden` attribute is overridden by the display values below, so the
+   two floating layers must re-assert it explicitly. */
+.emoji-panel[hidden],
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+/* Composer icon buttons — circular, matching .theme-toggle's visual language */
+.composer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+    transform var(--dur) var(--ease-out), border-color var(--dur) var(--ease);
+}
+
+.composer-btn:active {
+  transform: scale(0.97);
+}
+
+/* Settings modal — centered card over a blurred backdrop */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(6px);
+  animation: fade-in var(--dur) var(--ease-out);
+}
+
+.modal {
+  width: 100%;
+  max-width: 360px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 18px 20px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  animation: modal-in var(--dur) var(--ease-out);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.modal-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+    transform var(--dur) var(--ease-out);
+}
+
+.modal-head button:active {
+  transform: scale(0.97);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-body label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.modal-body label:has(select),
+.modal-body label:has(input[type="url"]) {
+  justify-content: space-between;
+}
+
+.modal-body select,
+.modal-body input[type="url"] {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  min-width: 0;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.modal-body select:focus,
+.modal-body input[type="url"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.modal-body input[type="url"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-body input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Emoji picker panel — floating grid above the composer, origin-aware */
+.emoji-panel {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 4px;
+  width: min(320px, calc(100vw - 24px));
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  transform-origin: var(--transform-origin, bottom left);
+  animation: pop-in var(--dur) var(--ease-out);
+}
+
+.emoji-panel img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  margin: auto;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease);
+}
+
+.emoji-panel .emoji-hint {
+  grid-column: 1 / -1;
+  padding: 8px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* Bubble style presets — applied via meta.bubble */
+.message .bubble--flat {
+  border-radius: 6px;
+}
+
+.message .bubble--card {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-pop);
+}
+
+.message.self .bubble--card {
+  border-color: var(--border-strong);
+}
+
+.message .bubble--minimal,
+.message.self .bubble--minimal {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* All presets drop the speech-notch tail (both sides). */
+.message .bubble--flat::before,
+.message.self .bubble--flat::before,
+.message .bubble--card::before,
+.message.self .bubble--card::before,
+.message .bubble--minimal::before,
+.message.self .bubble--minimal::before {
+  display: none;
+}
+
+/* Meta-driven text styling on the message span inside the bubble */
+.message .bubble.font-serif .msg {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.message .bubble.font-mono .msg {
+  font-family: var(--font-mono);
+}
+
+.message .bubble.size-sm .msg {
+  font-size: 13px;
+}
+
+.message .bubble.size-lg .msg {
+  font-size: 16px;
+}
+
+.message .bubble.msg-bold .msg {
+  font-weight: 700;
+}
+
+.message .bubble.msg-italic .msg {
+  font-style: italic;
+}
+
+/* Image avatar — same border treatment as the monogram */
+.message .avatar-img {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-top: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+/* Hover micro-interactions — gated to precise pointers only */
+@media (hover: hover) and (pointer: fine) {
+  .composer-btn:hover {
+    background: var(--bg-inset);
+    color: var(--accent);
+  }
+
+  .modal-head button:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .emoji-panel img:hover {
+    background: var(--bg-inset);
+    transform: scale(1.12);
   }
 }

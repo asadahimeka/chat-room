@@ -12,7 +12,7 @@ import { Notify } from './notify'
 import { linkify } from './linkify'
 import type { JoinedUser, MsgItem } from '../ws/protocol'
 import { renderMarkdown } from '../utils/markdown'
-import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES } from '../utils/emoji'
+import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES, type EmojiPack } from '../utils/emoji'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
 
 export function formatTime(ts: number): string {
@@ -168,9 +168,11 @@ function init(): void {
   // Emoji map starts empty (messages render fine before packs load); the async
   // bootstrap fills it from the room-data config or the builtin fallback.
   let emojiMap = new Map<string, string>()
+  let emojiPacks: EmojiPack[] = []
   const emojiEntries = roomData.emoji && roomData.emoji.length ? roomData.emoji : BUILTIN_EMOJI_ENTRIES
   resolveEmojiConfig(emojiEntries)
     .then((packs) => {
+      emojiPacks = packs
       emojiMap = buildEmojiMap(packs)
     })
     .catch(() => {
@@ -603,6 +605,147 @@ function init(): void {
     const uid = target.dataset.uid
     const name = target.dataset.name
     if (uid && name) showActionPopover(target, name, uid)
+  })
+
+  // ── Settings modal (gear → modal) ──────────────────────────────────────
+  const settingsBtn = el<HTMLButtonElement>('settings-btn')
+  const settingsModal = el<HTMLDivElement>('settings-modal')
+  const settingsClose = el<HTMLButtonElement>('settings-close')
+  const setFont = el<HTMLSelectElement>('set-font')
+  const setSize = el<HTMLSelectElement>('set-size')
+  const setBold = el<HTMLInputElement>('set-bold')
+  const setItalic = el<HTMLInputElement>('set-italic')
+  const setAvatar = el<HTMLInputElement>('set-avatar')
+  const setBubble = el<HTMLSelectElement>('set-bubble')
+
+  const FONT_VALUES = ['default', 'serif', 'mono'] as const
+  const SIZE_VALUES = ['sm', 'md', 'lg'] as const
+  const BUBBLE_VALUES = ['default', 'flat', 'card', 'minimal'] as const
+  const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
+    typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : fallback
+
+  setFont.value = pick(userPrefs.font, FONT_VALUES, 'default')
+  setSize.value = pick(userPrefs.size, SIZE_VALUES, 'md')
+  setBold.checked = userPrefs.bold === true
+  setItalic.checked = userPrefs.italic === true
+  setAvatar.value = typeof userPrefs.avatar === 'string' ? userPrefs.avatar : ''
+  setBubble.value = pick(userPrefs.bubble, BUBBLE_VALUES, 'default')
+
+  function persistPrefs(): void {
+    try {
+      localStorage.setItem('settings', JSON.stringify(userPrefs))
+    } catch {
+      // storage unavailable — prefs still apply for this page
+    }
+  }
+
+  setFont.addEventListener('change', () => {
+    userPrefs.font = setFont.value
+    persistPrefs()
+  })
+  setSize.addEventListener('change', () => {
+    userPrefs.size = setSize.value
+    persistPrefs()
+  })
+  setBold.addEventListener('change', () => {
+    userPrefs.bold = setBold.checked
+    persistPrefs()
+  })
+  setItalic.addEventListener('change', () => {
+    userPrefs.italic = setItalic.checked
+    persistPrefs()
+  })
+  setBubble.addEventListener('change', () => {
+    userPrefs.bubble = setBubble.value
+    persistPrefs()
+  })
+  setAvatar.addEventListener('input', () => {
+    userPrefs.avatar = setAvatar.value.trim()
+    persistPrefs()
+    // A valid avatar URL also sets the profile cookie (T8 upload gate).
+    if (/^(https:\/\/|data:image\/)/.test(userPrefs.avatar)) {
+      setCookie('avatar', userPrefs.avatar)
+    }
+  })
+
+  function openSettings(): void {
+    settingsModal.hidden = false
+  }
+  function closeSettings(): void {
+    settingsModal.hidden = true
+  }
+  settingsBtn.addEventListener('click', openSettings)
+  settingsClose.addEventListener('click', closeSettings)
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettings()
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !settingsModal.hidden) closeSettings()
+  })
+
+  // ── Emoji picker panel ─────────────────────────────────────────────────
+  const emojiBtn = el<HTMLButtonElement>('emoji-btn')
+  const emojiPanel = el<HTMLDivElement>('emoji-panel')
+
+  function renderEmojiPanel(): void {
+    emojiPanel.textContent = ''
+    if (emojiPacks.length === 0) {
+      const hint = document.createElement('span')
+      hint.className = 'emoji-hint'
+      hint.textContent = 'loading…'
+      emojiPanel.appendChild(hint)
+      return
+    }
+    for (const pack of emojiPacks) {
+      for (const kw of pack.keywords) {
+        const url = pack.urlOf(kw)
+        if (!url.startsWith('https://')) continue
+        const img = document.createElement('img')
+        img.src = url
+        img.alt = `:${kw}:`
+        img.title = kw
+        img.loading = 'lazy'
+        img.referrerPolicy = 'no-referrer'
+        img.addEventListener('click', () => insertEmojiToken(kw))
+        emojiPanel.appendChild(img)
+      }
+    }
+  }
+
+  function insertEmojiToken(kw: string): void {
+    const token = `:${kw}:`
+    const start = msgInput.selectionStart ?? msgInput.value.length
+    const end = msgInput.selectionEnd ?? start
+    msgInput.setRangeText(token, start, end, 'end')
+    msgInput.focus()
+    autoGrow()
+  }
+
+  function positionEmojiPanel(): void {
+    const rect = emojiBtn.getBoundingClientRect()
+    const panelHeight = emojiPanel.offsetHeight || 240
+    const panelWidth = emojiPanel.offsetWidth || 320
+    emojiPanel.style.top = `${Math.max(8, rect.top - panelHeight - 8)}px`
+    emojiPanel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panelWidth - 8))}px`
+    emojiPanel.style.setProperty('--transform-origin', 'bottom left')
+  }
+
+  emojiBtn.addEventListener('click', () => {
+    if (emojiPanel.hidden) {
+      renderEmojiPanel()
+      emojiPanel.hidden = false
+      positionEmojiPanel()
+    } else {
+      emojiPanel.hidden = true
+    }
+  })
+
+  // Clicking outside the panel (or the button) dismisses it.
+  document.addEventListener('click', (e) => {
+    if (emojiPanel.hidden) return
+    const target = e.target as Node
+    if (emojiPanel.contains(target) || emojiBtn.contains(target)) return
+    emojiPanel.hidden = true
   })
 
   setStatus('get record...', 'connecting')

@@ -117,11 +117,27 @@ export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string 
             <div class="msg-input-wrap">
               <textarea id="msg-input" rows="1" placeholder="Say something…" maxlength="1000"></textarea>
             </div>
+            <button id="emoji-btn" class="composer-btn" type="button" aria-label="Emoji">😀</button>
+            <button id="settings-btn" class="composer-btn" type="button" aria-label="Settings">⚙️</button>
             <button id="send-btn" type="button">
               <svg class="send-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
               <span class="send-label">Send</span>
             </button>
           </footer>
+        </div>
+        <div id="emoji-panel" class="emoji-panel" hidden></div>
+        <div id="settings-modal" class="modal-backdrop" hidden>
+          <div class="modal" role="dialog" aria-modal="true">
+            <header class="modal-head"><span>Settings</span><button id="settings-close" type="button" aria-label="Close">×</button></header>
+            <div class="modal-body">
+              <label>Font <select id="set-font"><option value="default">Default</option><option value="serif">Serif</option><option value="mono">Mono</option></select></label>
+              <label>Size <select id="set-size"><option value="sm">Small</option><option value="md" selected>Medium</option><option value="lg">Large</option></select></label>
+              <label><input type="checkbox" id="set-bold"> Bold</label>
+              <label><input type="checkbox" id="set-italic"> Italic</label>
+              <label>Avatar URL <input type="url" id="set-avatar" placeholder="https://..."></label>
+              <label>Bubble <select id="set-bubble"><option value="default">Default</option><option value="flat">Flat</option><option value="card">Card</option><option value="minimal">Minimal</option></select></label>
+            </div>
+          </div>
         </div>
         <div id="toast" class="toast"></div>
         <script type="module" src="/static/js/room.client.js"></script>
