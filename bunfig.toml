@@ -4,3 +4,6 @@ telemetry = false
 registry = "https://registry.npmjs.org"
 saveTextLockfile = true
 frozenLockfile = false
+
+[test]
+pathIgnorePatterns = ["reference/**"]
