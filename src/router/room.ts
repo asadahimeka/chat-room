@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { db } from '../db'
 import record2svg from '../utils/record2svg'
 import { renderRoomPage } from '../views/room'
+import { config } from '../config'
 
 type RoomParams = { roomId: string }
 type RoomQuery = {
@@ -22,7 +23,7 @@ export const roomRouter = new Elysia()
   .get('/@:roomId', ({ params, query }) => {
     const p = params as unknown as RoomParams
     const q = query as RoomQuery
-    return new Response(renderRoomPage({ roomId: p.roomId, title: q.title }), {
+    return new Response(renderRoomPage({ roomId: p.roomId, title: q.title, emoji: config.emoji }), {
       headers: { 'content-type': 'text/html; charset=utf-8' },
     })
   })

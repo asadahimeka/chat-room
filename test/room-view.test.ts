@@ -29,6 +29,11 @@ describe('renderRoomPage room page', () => {
     expect(html).toContain('"title":"My Room"')
   })
 
+  it('includes emoji in room-data when provided', () => {
+    const html = renderRoomPage({ roomId: '@demo', emoji: ['https://x/a/'] })
+    expect(html).toContain('"emoji":["https://x/a/"]')
+  })
+
   it('escapes a malicious title inside room-data (no raw <script>)', () => {
     const html = renderRoomPage({ roomId: '@demo', title: '<script>alert(1)</script>' })
     // The JSON.stringify output must escape the angle brackets so no raw <script> survives.

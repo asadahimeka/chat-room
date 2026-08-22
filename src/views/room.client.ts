@@ -11,6 +11,9 @@
 import { Notify } from './notify'
 import { linkify } from './linkify'
 import type { JoinedUser, MsgItem } from '../ws/protocol'
+import { renderMarkdown } from '../utils/markdown'
+import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES } from '../utils/emoji'
+import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
 
 export function formatTime(ts: number): string {
   return new Date(ts * 1000).toLocaleString()
@@ -54,11 +57,19 @@ export function isMobile(ua: string): boolean {
   return /(iPad)|(iPhone)|(iPod)|(android)|(webOS)/i.test(ua)
 }
 
-export function parseRoomData(el: HTMLElement | null): { roomId: string; title: string } {
+export function parseRoomData(el: HTMLElement | null): {
+  roomId: string
+  title: string
+  emoji?: unknown[]
+} {
   if (!el || !el.textContent) return { roomId: '', title: '' }
   try {
-    const data = JSON.parse(el.textContent) as { roomId?: string; title?: string }
-    return { roomId: data.roomId ?? '', title: data.title ?? '' }
+    const data = JSON.parse(el.textContent) as { roomId?: string; title?: string; emoji?: unknown }
+    return {
+      roomId: data.roomId ?? '',
+      title: data.title ?? '',
+      emoji: Array.isArray(data.emoji) ? data.emoji : undefined,
+    }
   } catch {
     return { roomId: '', title: '' }
   }
@@ -135,6 +146,37 @@ function init(): void {
     blockList = []
   }
 
+  // Outgoing message-style prefs (reader only — the settings modal writer
+  // arrives in T7). Missing fields serialize as defaults.
+  let userPrefs: {
+    avatar?: string
+    font?: string
+    size?: string
+    bold?: boolean
+    italic?: boolean
+    bubble?: string
+  } = {}
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem('settings') || '{}')
+    if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
+      userPrefs = stored as typeof userPrefs
+    }
+  } catch {
+    userPrefs = {}
+  }
+
+  // Emoji map starts empty (messages render fine before packs load); the async
+  // bootstrap fills it from the room-data config or the builtin fallback.
+  let emojiMap = new Map<string, string>()
+  const emojiEntries = roomData.emoji && roomData.emoji.length ? roomData.emoji : BUILTIN_EMOJI_ENTRIES
+  resolveEmojiConfig(emojiEntries)
+    .then((packs) => {
+      emojiMap = buildEmojiMap(packs)
+    })
+    .catch(() => {
+      // Emoji loading is best-effort; plain text rendering still works.
+    })
+
   function setStatus(text: string, cls: string): void {
     const statusEl = header.querySelector('.status') as HTMLElement | null
     if (!statusEl) return
@@ -154,7 +196,17 @@ function init(): void {
   }
 
   function appendMsg(
-    item: { type: 'sys' | 'msg'; msg: string; name?: string; uid?: string; time?: string; namecolor?: string; msgcolor?: string; highlight?: boolean },
+    item: {
+      type: 'sys' | 'msg'
+      msg: string
+      name?: string
+      uid?: string
+      time?: string
+      namecolor?: string
+      msgcolor?: string
+      highlight?: boolean
+      meta?: string
+    },
     position: 'before' | 'after' = 'after',
   ): void {
     if (item.type === 'msg' && item.uid && isBlocked(item.uid, blockList)) return
@@ -163,6 +215,7 @@ function init(): void {
       msgList.scrollTop + msgList.clientHeight >= msgList.scrollHeight - 2
 
     let node: HTMLElement
+    let containsLink = false
 
     if (item.type === 'sys') {
       node = document.createElement('div')
@@ -180,10 +233,7 @@ function init(): void {
       node.dataset.uid = item.uid
       if (userInfo && item.uid === userInfo.uid) node.classList.add('self')
 
-      const avatar = document.createElement('span')
-      avatar.className = 'avatar'
-      avatar.style.background = item.namecolor || '#117743'
-      avatar.textContent = (item.name ?? '?').charAt(0).toUpperCase()
+      const avatar = buildAvatarEl(safeParseMeta(item.meta), item.name ?? '?', item.namecolor || '#117743')
 
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
@@ -214,10 +264,11 @@ function init(): void {
       const msgSpan = document.createElement('span')
       msgSpan.className = 'msg'
       msgSpan.style.color = item.msgcolor || '#3d3d3d'
-      msgSpan.textContent = msg
+      containsLink = renderMarkdown(msgSpan, msg, emojiMap).containsLink
 
       bubble.appendChild(nickname)
       bubble.appendChild(msgSpan)
+      applyMetaClasses(bubble, safeParseMeta(item.meta))
       node.appendChild(avatar)
       node.appendChild(bubble)
     }
@@ -239,8 +290,12 @@ function init(): void {
       }
     }
 
-    const msgEl = node.querySelector('.msg')
-    if (msgEl) linkify(msgEl as HTMLElement)
+    // linkify runs for sys messages as before; for chat messages only when
+    // renderMarkdown produced no link (avoids double-wrapping).
+    if (item.type === 'sys' || !containsLink) {
+      const msgEl = node.querySelector('.msg')
+      if (msgEl) linkify(msgEl as HTMLElement)
+    }
   }
 
   function renderOnline(users: JoinedUser[]): void {
@@ -337,6 +392,7 @@ function init(): void {
           msg,
           namecolor: nameColor.value,
           msgcolor: msgColor.value,
+          meta: serializeOutgoingMeta(userPrefs),
         },
       }),
     )
@@ -408,6 +464,7 @@ function init(): void {
             namecolor: m.namecolor,
             msgcolor: m.msgcolor,
             highlight,
+            meta: m.meta,
           })
           break
         }
@@ -449,6 +506,7 @@ function init(): void {
             msg: m.msg,
             namecolor: m.namecolor,
             msgcolor: m.msgcolor,
+            meta: m.meta,
           })
         }
         // Initial load lands the reader on the newest message.
@@ -482,6 +540,7 @@ function init(): void {
               msg: m.msg,
               namecolor: m.namecolor,
               msgcolor: m.msgcolor,
+              meta: m.meta,
             },
             'before',
           )

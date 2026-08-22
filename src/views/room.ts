@@ -36,11 +36,14 @@
 type RoomPageProps = {
   roomId: string
   title?: string
+  emoji?: unknown[]
 }
 
-export function renderRoomPage({ roomId, title }: RoomPageProps): string {
+export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string {
   const pageTitle = `${roomId} - Chat Room`
-  const data = JSON.stringify({ roomId, title: title ?? '' })
+  const dataObj: Record<string, unknown> = { roomId, title: title ?? '' }
+  if (emoji !== undefined) dataObj.emoji = emoji
+  const data = JSON.stringify(dataObj)
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
     .replace(/&/g, '\\u0026')

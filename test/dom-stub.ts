@@ -71,6 +71,8 @@ class StubElement implements StubNode {
   alt = ''
   loading = ''
   referrerPolicy = ''
+  /** Minimal style surface (background etc.) for avatar/monogram building. */
+  style: Record<string, string> = {}
   /** Set when textContent is assigned; overrides child concatenation. */
   private _textContent: string | null = null
   private _classes = new Set<string>()
