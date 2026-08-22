@@ -1,0 +1,11 @@
+port: 3000
+dbPath: ./db/msg.db
+emoji:
+  - https://www.nanoka.top/images/stamp/GBC/
+upload:
+  region: us-east-1
+  bucket: chat-room
+  endpoint: https://s3.us-east-1.amazonaws.com
+  publicUrl: ""        # 可选：公开访问前缀，空则用 endpoint+bucket 拼
+  dailyQuotaPerIp: 50
+  maxBytes: 5242880
