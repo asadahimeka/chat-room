@@ -1070,6 +1070,25 @@ body {
   transform: scale(0.97);
 }
 
+/* Upload button loading state — visible spinner + disabled interaction
+   while the server processes the image (compression can take seconds). */
+.composer-btn.uploading {
+  pointer-events: none;
+  opacity: 0.5;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.composer-btn.uploading svg {
+  animation: upload-spin 0.9s linear infinite;
+}
+
+@keyframes upload-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Settings modal — centered card over a blurred backdrop */
 .modal-backdrop {
   position: fixed;
