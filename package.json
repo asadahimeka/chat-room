@@ -1,7 +1,10 @@
 {
   "name": "chat-room",
   "version": "2.0.0",
-  "description": "一个普通的聊天室（Bun 原生重写版）",
+  "description": "一个普通的聊天室",
+  "keywords": [],
+  "author": "asadahimeka",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
@@ -12,9 +15,6 @@
     "dev:build": "bun build --watch ./src/views/room.client.ts --outdir ./static/js --format=esm --target=browser",
     "typecheck": "bunx tsc --noEmit"
   },
-  "keywords": [],
-  "author": "journey-ad",
-  "license": "MIT",
   "dependencies": {
     "elysia": "^1.4.29",
     "fastscan": "^1.0.6",

@@ -20,8 +20,8 @@ upload:
   region: us-east-1
   bucket: chat-room
   endpoint: https://s3.us-east-1.amazonaws.com
-  publicUrl: ""        # 可选：公开访问前缀，空则用 endpoint+bucket 拼
-  dailyQuotaPerIp: 5
+  publicUrl: ""            # 可选：公开访问前缀，空则用 endpoint+bucket 拼
+  dailyQuotaPerIp: 5       # 每个 IP 每日可上传图片的数量
   maxBytes: 1048576        # 压缩产物大小上限（413 拒绝）
   inputMaxBytes: 5242880   # 原始输入大小上限（宽松于产物上限）
   compressQuality: 50      # AVIF/WebP 编码质量 (1-100)
