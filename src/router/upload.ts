@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { config } from '../config'
 import { getCookie } from '../utils/input'
+import { parseClientIp } from '../utils/ip'
 
 export interface UploadDeps {
   /** Injected S3 writer; returns the public URL. Prod uses Bun.s3. */
@@ -11,7 +12,16 @@ export interface UploadDeps {
   dailyQuotaPerIp?: number
   /** Test override; prod reads config.upload.maxBytes. */
   maxBytes?: number
+  /** When true, `cf-connecting-ip` is trusted as the client IP. */
+  trustCloudflare?: boolean
+  /** Resolves the transport peer IP in production (verified: server.requestIP). */
+  getRemoteAddress?: (request: Request) => string | null
+  /** Override for the quota-map capacity cap (default 5000); used by tests. */
+  quotaCapacity?: number
 }
+
+/** Hard cap on quota-map entries to bound memory under IP-spoofing pressure. */
+const QUOTA_CAPACITY = 5000
 
 interface QuotaEntry {
   date: string
@@ -58,15 +68,15 @@ function dateKey(d: Date): string {
 }
 
 /**
- * First entry of `x-forwarded-for` (split on ',', trimmed), else 'unknown'.
+ * Resolves the client IP for quota keying. Delegates to the shared
+ * `parseClientIp` so the trust rules (Cloudflare opt-in, XFF never trusted)
+ * stay identical across WS and upload paths.
  */
-export function parseIp(headers: Headers): string {
-  const fwd = headers.get('x-forwarded-for')
-  if (fwd) {
-    const first = fwd.split(',')[0].trim()
-    if (first) return first
-  }
-  return 'unknown'
+export function parseIp(
+  headers: Headers,
+  opts: { trustCloudflare: boolean; remoteAddress?: string | null },
+): string {
+  return parseClientIp(headers, opts)
 }
 
 /**
@@ -78,6 +88,24 @@ export function createUploadRouter(deps: UploadDeps = {}): Elysia<any, any, any,
   const quota = new Map<string, QuotaEntry>()
   const quotaPerIp = deps.dailyQuotaPerIp ?? config.upload.dailyQuotaPerIp
   const maxBytes = deps.maxBytes ?? config.upload.maxBytes
+  const capacity = deps.quotaCapacity ?? QUOTA_CAPACITY
+
+  // Bounds the quota map so a flood of distinct spoofed IPs cannot grow it
+  // unbounded. Map iteration order is insertion order, so the first key is the
+  // oldest. On overflow we first drop cross-day (stale) entries; if still full
+  // we evict the oldest insertion-order entries until under capacity.
+  function evictIfNeeded(): void {
+    if (quota.size < capacity) return
+    const today = dateKey(deps.now?.() ?? new Date())
+    for (const [k, v] of quota) {
+      if (v.date !== today) quota.delete(k)
+    }
+    let oldest = quota.keys().next()
+    while (oldest.done !== true && quota.size >= capacity) {
+      quota.delete(oldest.value)
+      oldest = quota.keys().next()
+    }
+  }
 
   return new Elysia().post('/upload', async ({ request }) => {
     const headers = new Headers(request.headers)
@@ -91,7 +119,11 @@ export function createUploadRouter(deps: UploadDeps = {}): Elysia<any, any, any,
     }
 
     // b. Daily per-IP quota (increments on acceptance only).
-    const ip = parseIp(headers)
+    const ip = parseIp(headers, {
+      trustCloudflare: deps.trustCloudflare ?? false,
+      remoteAddress: deps.getRemoteAddress ? deps.getRemoteAddress(request) : null,
+    })
+    evictIfNeeded()
     const today = dateKey(deps.now?.() ?? new Date())
     const entry = quota.get(ip)
     if (!entry || entry.date !== today) {

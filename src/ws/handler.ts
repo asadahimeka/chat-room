@@ -1,6 +1,9 @@
 import { Elysia } from 'elysia'
 import { RoomState } from './room-state'
 import { db } from '../db'
+import type { MsgRowInput } from '../db'
+import { config } from '../config'
+import { parseClientIp } from '../utils/ip'
 import {
   processInput,
   getCookie,
@@ -16,6 +19,8 @@ interface ConnData {
   sid: string
   uid: string
   name: string
+  /** Audit-only client IP; never sent to clients. */
+  ip: string
 }
 
 interface WsLike {
@@ -86,6 +91,15 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
       const sid = data.query.t ?? ''
       const cookieHeader = data.headers.cookie
 
+      // Audit-only IP: ws.remoteAddress is the transport peer (string); behind
+      // Cloudflare it would be the edge IP, so cf-connecting-ip is consulted
+      // only when explicitly trusted. Never exposed to clients.
+      const headers = new Headers(data.headers as Record<string, string>)
+      const ip = parseClientIp(headers, {
+        trustCloudflare: config.trustCloudflare,
+        remoteAddress: (ws as { remoteAddress?: string }).remoteAddress ?? null,
+      })
+
       const name = processInput(sanitizeName(getCookie(cookieHeader, 'name')) || genGuestName())
       const uid = processInput(sanitizeUid(getCookie(cookieHeader, 'uid')) || sid)
 
@@ -93,6 +107,7 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
       data.sid = sid
       data.uid = uid
       data.name = name
+      data.ip = ip
 
       const { isNew } = roomState.join(roomId, sid, uid, name)
 
@@ -108,12 +123,12 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
     },
     message(ws, message) {
       const data = ws.data as ConnData & typeof ws.data
-      const { roomId, sid, uid, name } = data
+      const { roomId, sid, uid, name, ip } = data
       const event = message as ClientEvent
 
       if (event.type === 'message') {
         const m = event.data
-        const msgItem = {
+        const msgItem: MsgRowInput = {
           ...m,
           sid,
           room: roomId,
@@ -123,8 +138,11 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
           namecolor: sanitizeColor(m.namecolor, '#117743'),
           msgcolor: sanitizeColor(m.msgcolor, '#3d3d3d'),
           meta: sanitizeMeta(m.meta),
+          ip, // audit only — stripped before broadcast below
         }
-        broadcast(roomId, { type: 'msg', data: msgItem })
+        // Broadcast a copy WITHOUT the audit ip (hard privacy boundary).
+        const { ip: _auditIp, ...broadcastItem } = msgItem
+        broadcast(roomId, { type: 'msg', data: broadcastItem })
         if (roomId !== 'demo') db.setRecord(msgItem)
       } else if (event.type === 'change-name') {
         const newName = processInput(sanitizeName(event.data))

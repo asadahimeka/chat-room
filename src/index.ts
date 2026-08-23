@@ -2,11 +2,19 @@ import { Elysia } from 'elysia'
 import { config } from './config'
 import { miscRouter } from './router/misc'
 import { roomRouter } from './router/room'
-import { uploadRouter } from './router/upload'
+import { createUploadRouter } from './router/upload'
 import { RoomState } from './ws/room-state'
 import { registerWs } from './ws/handler'
 
 const roomState = new RoomState()
+
+// Production upload router: trust flag from config; real peer IP resolved via
+// the verified Bun server.requestIP (returns {address,...}). The closure reads
+// app.server lazily so it is populated by the time a request arrives.
+const uploadRouter = createUploadRouter({
+  trustCloudflare: config.trustCloudflare,
+  getRemoteAddress: (request) => app.server?.requestIP(request)?.address ?? null,
+})
 
 async function resolveStatic(rel: string): Promise<Response> {
   const file = Bun.file(`./static/${rel}`)

@@ -28,9 +28,14 @@ export interface MsgItem {
   meta?: string
 }
 
+// Audit-only extension of MsgItem. `ip` is persisted for forensic purposes but
+// is NEVER part of the broadcast MsgItem nor the getRecord result (see the
+// explicit SELECT column list below). MsgItem itself stays ip-free by design.
+export type MsgRowInput = MsgItem & { ip?: string }
+
 export interface Db {
   getRecord(roomId: string, limit?: number, offset?: number): MsgRow[]
-  setRecord(msgItem: MsgItem): { lastInsertRowid: number; changes: number }
+  setRecord(msgItem: MsgRowInput): { lastInsertRowid: number; changes: number }
 }
 
 // The 9 legacy columns are character-identical to the legacy db/sqlite.js DDL;
@@ -47,7 +52,8 @@ const DDL = `CREATE TABLE IF NOT EXISTS tb_msg (
     namecolor VARCHAR (7)    NOT NULL,
     msgcolor  VARCHAR (7)    NOT NULL,
     msg       VARCHAR (1000) NOT NULL,
-    meta      TEXT
+    meta      TEXT,
+    ip        TEXT
 );`
 
 export function createDb(dbPath: string): Db {
@@ -64,23 +70,16 @@ export function createDb(dbPath: string): Db {
 
   db.run(DDL)
 
-  // Idempotent migration for legacy DBs created before the `meta` column
-  // existed. New DBs already have `meta` from the DDL above, so this ALTER
-  // throws "duplicate column name: meta" and is silently ignored.
-  try {
-    db.run('ALTER TABLE tb_msg ADD COLUMN meta TEXT')
-  } catch {
-    // Column already exists (new DB or already-migrated legacy DB); ignore.
-  }
-
   // Positional `?` params are equivalent to the legacy named `$name` params:
   // SQLite binds them in declaration order, so the two styles are
   // interchangeable for the same column list.
+  // getRecord uses an EXPLICIT column list (no `ip`) so the audit column can
+  // never leak through the record API, SVG render, or broadcast path.
   const getRecordStmt = db.query(
-    'SELECT * FROM tb_msg WHERE `room` = ? ORDER BY `time` DESC LIMIT ? OFFSET ?',
+    'SELECT id, name, room, uid, sid, time, namecolor, msgcolor, msg, meta FROM tb_msg WHERE `room` = ? ORDER BY `time` DESC LIMIT ? OFFSET ?',
   )
   const setRecordStmt = db.query(
-    'INSERT INTO tb_msg(name, room, uid, sid, time, namecolor, msgcolor, msg, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tb_msg(name, room, uid, sid, time, namecolor, msgcolor, msg, meta, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
 
   return {
@@ -88,8 +87,19 @@ export function createDb(dbPath: string): Db {
       return getRecordStmt.all(roomId, limit, offset) as MsgRow[]
     },
     setRecord(msgItem) {
-      const { name, room, uid, sid, ts: time, namecolor, msgcolor, msg, meta } = msgItem
-      const result = setRecordStmt.run(name, room, uid, sid, time, namecolor, msgcolor, msg, meta ?? null)
+      const { name, room, uid, sid, ts: time, namecolor, msgcolor, msg, meta, ip } = msgItem
+      const result = setRecordStmt.run(
+        name,
+        room,
+        uid,
+        sid,
+        time,
+        namecolor,
+        msgcolor,
+        msg,
+        meta ?? null,
+        ip ?? null,
+      )
       // safeIntegers defaults to false, so these are always JS numbers.
       return {
         lastInsertRowid: result.lastInsertRowid as number,
@@ -116,9 +126,13 @@ export function parseMsgMeta(raw: string | null): Record<string, unknown> | null
 // imports this module for `createDb`, altering the file's bytes and breaking
 // the byte-for-byte preservation requirement.
 let defaultDb: Db | null = null
+let defaultDbPath: string | null = null
 export const db: Db = new Proxy({} as Db, {
   get(_target, prop: string | symbol) {
-    if (!defaultDb) defaultDb = createDb(loadConfig(process.env).dbPath)
+    if (!defaultDb) {
+      defaultDbPath = loadConfig(process.env).dbPath
+      defaultDb = createDb(defaultDbPath)
+    }
     if (prop === 'getRecord' || prop === 'setRecord') return defaultDb[prop]
     return undefined
   },
@@ -132,3 +146,11 @@ export const db: Db = new Proxy({} as Db, {
     return { enumerable: true, configurable: true }
   },
 })
+
+// Test-only: the path of the lazily-created default DB (null until first
+// access). Lets tests reopen the exact file the app's `db` proxy wrote to,
+// regardless of which test file force-locked the proxy first. Does NOT expose
+// any row data (ip included) — only the filesystem path.
+export function _testDefaultDbPath(): string | null {
+  return defaultDbPath
+}

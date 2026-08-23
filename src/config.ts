@@ -14,6 +14,8 @@ export interface Config {
   dbPath: string
   emoji: unknown[]
   upload: UploadConfig
+  /** Trust `cf-connecting-ip` as the real client IP. Default false (untrusted). */
+  trustCloudflare: boolean
 }
 
 const DEFAULT_PORT = 3000
@@ -30,6 +32,17 @@ const DEFAULT_UPLOAD: UploadConfig = {
 // Only a positive integer is a valid port; everything else → undefined.
 // Env values arrive as strings (regex-checked); YAML values arrive as numbers.
 const PORT_RE = /^[1-9]\d*$/
+
+// Accepts boolean or the string forms 'true'/'1' (true) and 'false'/'0' (false).
+// Anything else (including undefined) → undefined so the next source down wins.
+function parseBool(raw: unknown): boolean | undefined {
+  if (typeof raw === 'boolean') return raw
+  if (typeof raw !== 'string') return undefined
+  const t = raw.trim().toLowerCase()
+  if (t === 'true' || t === '1') return true
+  if (t === 'false' || t === '0') return false
+  return undefined
+}
 
 function parsePort(raw: unknown): number | undefined {
   if (typeof raw === 'number') {
@@ -99,7 +112,10 @@ export function loadConfig(
 
   const emoji = Array.isArray(yaml?.emoji) ? yaml.emoji : []
 
-  return { port, dbPath, emoji, upload }
+  const trustCloudflare =
+    parseBool(env.TRUST_CLOUDFLARE) ?? parseBool(yaml?.trustCloudflare) ?? false
+
+  return { port, dbPath, emoji, upload, trustCloudflare }
 }
 
 export const config: Config = loadConfig(process.env)

@@ -1,15 +1,20 @@
 import { describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
+import { Database } from 'bun:sqlite'
 import { RoomState } from '../src/ws/room-state'
 import { registerWs, sanitizeMeta } from '../src/ws/handler'
-import { db } from '../src/db'
+import { db, _testDefaultDbPath } from '../src/db'
 import { randomRoomName, tmpDbPath } from './setup'
 
 // Point the lazy `db` proxy at a throwaway DB BEFORE any message triggers
 // setRecord. The proxy only creates the underlying Database on first access,
 // so this assignment (module top-level) is guaranteed to be in effect by the
-// time a test sends a chat message.
-process.env.DB_PATH = tmpDbPath()
+// time a test sends a chat message. We also force-lock the proxy here (like
+// integration.test.ts does) so writes land in THIS file's DB, which we reopen
+// below to assert the audit ip was persisted.
+const WS_DB_PATH = tmpDbPath()
+process.env.DB_PATH = WS_DB_PATH
+db.getRecord('__init__')
 
 interface Collected {
   type: string
@@ -174,10 +179,68 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
     expect(item.namecolor).toBe('#ff0000')
     expect(item.msgcolor).toBe('#00ff00')
     expect(item.msg).toBe('hello world')
+    // Hard privacy boundary: the audit ip must never reach clients.
+    expect(item).not.toHaveProperty('ip')
 
     const rows = db.getRecord(room)
     expect(rows).toHaveLength(1)
     expect(rows[0].msg).toBe('hello world')
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
+
+  test('broadcast payload excludes ip; DB row stores server-resolved audit ip', async () => {
+    const room = randomRoomName('tip')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    // Client tries to smuggle its own `ip` field — must be ignored.
+    a.ws.send(
+      JSON.stringify({
+        type: 'message',
+        data: {
+          uid: 'u1',
+          name: 'Alice',
+          msg: 'audit me',
+          namecolor: '#ff0000',
+          msgcolor: '#00ff00',
+          ip: 'EVIL-CLIENT-IP',
+        },
+      }),
+    )
+
+    const msg = await b.waitFor('msg')
+    const item = msg[0].data as Record<string, unknown>
+    expect(item).not.toHaveProperty('ip')
+    expect(item.msg).toBe('audit me')
+
+    // The persisted audit ip is the server-resolved peer, never the client value.
+    // Reopen the exact file the app's `db` proxy wrote to (path may differ from
+    // process.env.DB_PATH due to cross-file proxy lock order).
+    const dbPath = _testDefaultDbPath()
+    expect(dbPath).not.toBeNull()
+    const stored = new Database(dbPath!, { readonly: true })
+    try {
+      const ip = (
+        stored.query('SELECT ip FROM tb_msg WHERE room = ?').get(room) as { ip: string | null }
+      ).ip
+      expect(ip).not.toBe('EVIL-CLIENT-IP')
+      expect(typeof ip).toBe('string')
+      expect((ip as string).length).toBeGreaterThan(0)
+    } finally {
+      stored.close()
+    }
 
     a.ws.close()
     b.ws.close()

@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { createDb, parseMsgMeta } from '../src/db/index.ts'
-import type { MsgItem } from '../src/db/index.ts'
+import type { MsgRowInput } from '../src/db/index.ts'
 import { tmpDbPath } from './setup.ts'
 
-const sample = (overrides: Partial<MsgItem> = {}): MsgItem => ({
+const sample = (overrides: Partial<MsgRowInput> = {}): MsgRowInput => ({
   name: 'alice',
   room: 'demo',
   uid: '1234567',
@@ -76,7 +76,7 @@ describe('time column type', () => {
 })
 
 describe('meta column', () => {
-  test('new DB schema includes meta as the 10th column (TEXT)', () => {
+  test('new DB schema includes meta (10th) and ip (11th) as TEXT', () => {
     // `:memory:` is per-connection and bun:sqlite has no shared-cache URI, so
     // inspect the schema of a fresh file DB through a second connection.
     const dbPath = tmpDbPath()
@@ -98,8 +98,10 @@ describe('meta column', () => {
         'msgcolor',
         'msg',
         'meta',
+        'ip',
       ])
       expect(cols[9].type).toBe('TEXT')
+      expect(cols[10].type).toBe('TEXT')
     } finally {
       raw.close()
     }
@@ -122,6 +124,59 @@ describe('meta column', () => {
   })
 })
 
+describe('ip audit column', () => {
+  test('setRecord with ip persists it; getRecord result omits ip', () => {
+    const db = createDb(':memory:')
+    db.setRecord(sample({ ip: '203.0.113.9' }))
+    const rows = db.getRecord('demo')
+    expect(rows).toHaveLength(1)
+    // The public MsgRow shape has no `ip` field at all.
+    expect((rows[0] as unknown as Record<string, unknown>).ip).toBeUndefined()
+    // But the audit column IS stored — verify via raw SQL.
+    const raw = new Database(':memory:')
+    // Re-open the same in-memory db is not possible; instead assert through a
+    // file db so we can read the ip column directly.
+    const dbPath = tmpDbPath()
+    const db2 = createDb(dbPath)
+    db2.setRecord(sample({ ip: '203.0.113.9' }))
+    const stored = new Database(dbPath, { readonly: true })
+    try {
+      const ip = (
+        stored.query('SELECT ip FROM tb_msg WHERE room = ?').get('demo') as { ip: string | null }
+      ).ip
+      expect(ip).toBe('203.0.113.9')
+    } finally {
+      stored.close()
+    }
+  })
+
+  test('setRecord without ip stores NULL in the audit column', () => {
+    const dbPath = tmpDbPath()
+    const db = createDb(dbPath)
+    db.setRecord(sample())
+    const stored = new Database(dbPath, { readonly: true })
+    try {
+      const ip = (
+        stored.query('SELECT ip FROM tb_msg WHERE room = ?').get('demo') as { ip: string | null }
+      ).ip
+      expect(ip).toBeNull()
+    } finally {
+      stored.close()
+    }
+  })
+
+  test('getRecord uses an explicit column list (no ip) even when present', () => {
+    const dbPath = tmpDbPath()
+    const db = createDb(dbPath)
+    db.setRecord(sample({ ip: '1.2.3.4' }))
+    const rows = db.getRecord('demo')
+    // Every returned row must be free of the audit key.
+    for (const r of rows) {
+      expect(Object.keys(r as unknown as Record<string, unknown>)).not.toContain('ip')
+    }
+  })
+})
+
 describe('parseMsgMeta', () => {
   test('parses valid JSON objects', () => {
     expect(parseMsgMeta('{"a":1}')).toEqual({ a: 1 })
@@ -140,60 +195,11 @@ describe('parseMsgMeta', () => {
   })
 })
 
-describe('legacy DB migration', () => {
-  test('ALTER adds meta to a 9-column legacy DB without error', () => {
-    const dbPath = tmpDbPath()
-    // Recreate the original 9-column schema exactly as the legacy DDL had it.
-    const legacy = new Database(dbPath)
-    legacy.run(`CREATE TABLE tb_msg (
-      id        INTEGER        PRIMARY KEY AUTOINCREMENT
-                               NOT NULL
-                               UNIQUE,
-      name      VARCHAR (32)   NOT NULL,
-      room      VARCHAR (32)   NOT NULL,
-      uid       VARCHAR (7)    NOT NULL,
-      sid       VARCHAR (7)    NOT NULL,
-      time      INT (10)       NOT NULL,
-      namecolor VARCHAR (7)    NOT NULL,
-      msgcolor  VARCHAR (7)    NOT NULL,
-      msg       VARCHAR (1000) NOT NULL
-    )`)
-    legacy.close()
-
-    // createDb must not throw on the legacy schema.
-    const db = createDb(dbPath)
-    expect(db.getRecord('demo')).toEqual([])
-
-    const raw = new Database(dbPath, { readonly: true })
-    try {
-      const cols = raw.query('PRAGMA table_info(tb_msg)').all() as Array<{
-        name: string
-        type: string
-      }>
-      expect(cols.map((c) => c.name)).toEqual([
-        'id',
-        'name',
-        'room',
-        'uid',
-        'sid',
-        'time',
-        'namecolor',
-        'msgcolor',
-        'msg',
-        'meta',
-      ])
-      expect(cols[9].type).toBe('TEXT')
-    } finally {
-      raw.close()
-    }
-  })
-})
-
 describe('schema compatibility with the real msg.db', () => {
   // Read-only open of the real DB — this test must never write.
   const realDbPath = path.resolve(import.meta.dir, '../db/msg.db')
 
-  test('PRAGMA table_info keeps the legacy 9-column baseline (meta optional)', () => {
+  test('PRAGMA table_info keeps column baseline ', () => {
     const db = new Database(realDbPath, { readonly: true })
     try {
       const cols = db
@@ -207,7 +213,7 @@ describe('schema compatibility with the real msg.db', () => {
         pk: number
       }>
       // The legacy 9 columns must be unchanged, in order.
-      expect(cols.slice(0, 9).map((c) => c.name)).toEqual([
+      expect(cols.map((c) => c.name)).toEqual([
         'id',
         'name',
         'room',
@@ -217,8 +223,10 @@ describe('schema compatibility with the real msg.db', () => {
         'namecolor',
         'msgcolor',
         'msg',
+        'meta',
+        'ip'
       ])
-      expect(cols.slice(0, 9).map((c) => c.type)).toEqual([
+      expect(cols.map((c) => c.type)).toEqual([
         'INTEGER',
         'VARCHAR (32)',
         'VARCHAR (32)',
@@ -228,14 +236,11 @@ describe('schema compatibility with the real msg.db', () => {
         'VARCHAR (7)',
         'VARCHAR (7)',
         'VARCHAR (1000)',
+        'TEXT',
+        'TEXT',
       ])
       // The sanctioned meta migration may or may not have run on this DB.
-      expect(cols.length).toBeGreaterThanOrEqual(9)
-      expect(cols.length).toBeLessThanOrEqual(10)
-      if (cols.length === 10) {
-        expect(cols[9].name).toBe('meta')
-        expect(cols[9].type).toBe('TEXT')
-      }
+      expect(cols.length).toEqual(11)
     } finally {
       db.close()
     }
