@@ -7,6 +7,16 @@ export interface UploadConfig {
   publicUrl: string
   dailyQuotaPerIp: number
   maxBytes: number
+  /** Raw input byte ceiling before compression (default 25MB). */
+  inputMaxBytes: number
+  /** AVIF/WebP encode quality (0-100). */
+  compressQuality: number
+  /** AVIF encode effort (higher = slower). */
+  compressEffort: number
+  /** Longest edge (px) the image is resized to fit inside before encoding. */
+  maxDimension: number
+  /** Per-request hard timeout (ms) for the compression worker. */
+  compressTimeoutMs: number
 }
 
 export interface Config {
@@ -27,6 +37,11 @@ const DEFAULT_UPLOAD: UploadConfig = {
   publicUrl: '',
   dailyQuotaPerIp: 50,
   maxBytes: 5242880,
+  inputMaxBytes: 26214400,
+  compressQuality: 50,
+  compressEffort: 4,
+  maxDimension: 2048,
+  compressTimeoutMs: 30000,
 }
 
 // Only a positive integer is a valid port; everything else → undefined.
@@ -52,6 +67,19 @@ function parsePort(raw: unknown): number | undefined {
   const trimmed = raw.trim()
   if (!PORT_RE.test(trimmed)) return undefined
   return Number(trimmed)
+}
+
+// Accepts a number or a numeric string (Bun.YAML.parse may return either for
+// the same field). Anything non-finite → undefined so the next source down wins.
+function parseNum(raw: unknown): number | undefined {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (trimmed === '') return undefined
+    const n = Number(trimmed)
+    return Number.isFinite(n) ? n : undefined
+  }
+  return undefined
 }
 
 // Sync on purpose: loadConfig is called from a lazy Proxy getter in
@@ -96,6 +124,11 @@ export function loadConfig(
         publicUrl?: unknown
         dailyQuotaPerIp?: unknown
         maxBytes?: unknown
+        inputMaxBytes?: unknown
+        compressQuality?: unknown
+        compressEffort?: unknown
+        maxDimension?: unknown
+        compressTimeoutMs?: unknown
       }
     | undefined
   const upload: UploadConfig = {
@@ -104,10 +137,13 @@ export function loadConfig(
     endpoint: typeof yamlUpload?.endpoint === 'string' ? yamlUpload.endpoint : DEFAULT_UPLOAD.endpoint,
     publicUrl: typeof yamlUpload?.publicUrl === 'string' ? yamlUpload.publicUrl : DEFAULT_UPLOAD.publicUrl,
     dailyQuotaPerIp:
-      typeof yamlUpload?.dailyQuotaPerIp === 'number'
-        ? yamlUpload.dailyQuotaPerIp
-        : DEFAULT_UPLOAD.dailyQuotaPerIp,
-    maxBytes: typeof yamlUpload?.maxBytes === 'number' ? yamlUpload.maxBytes : DEFAULT_UPLOAD.maxBytes,
+      parseNum(yamlUpload?.dailyQuotaPerIp) ?? DEFAULT_UPLOAD.dailyQuotaPerIp,
+    maxBytes: parseNum(yamlUpload?.maxBytes) ?? DEFAULT_UPLOAD.maxBytes,
+    inputMaxBytes: parseNum(yamlUpload?.inputMaxBytes) ?? DEFAULT_UPLOAD.inputMaxBytes,
+    compressQuality: parseNum(yamlUpload?.compressQuality) ?? DEFAULT_UPLOAD.compressQuality,
+    compressEffort: parseNum(yamlUpload?.compressEffort) ?? DEFAULT_UPLOAD.compressEffort,
+    maxDimension: parseNum(yamlUpload?.maxDimension) ?? DEFAULT_UPLOAD.maxDimension,
+    compressTimeoutMs: parseNum(yamlUpload?.compressTimeoutMs) ?? DEFAULT_UPLOAD.compressTimeoutMs,
   }
 
   const emoji = Array.isArray(yaml?.emoji) ? yaml.emoji : []
@@ -119,3 +155,18 @@ export function loadConfig(
 }
 
 export const config: Config = loadConfig(process.env)
+
+/**
+ * Origin (scheme://host[:port]) of the upload storage host, used by the client
+ * to decide the image `referrerPolicy`. Derived from `publicUrl` when set,
+ * otherwise the S3 `endpoint`. Returns '' when neither is a parseable URL.
+ */
+export function uploadOrigin(upload: UploadConfig = config.upload): string {
+  const raw = upload.publicUrl || upload.endpoint
+  if (!raw) return ''
+  try {
+    return new URL(raw).origin
+  } catch {
+    return ''
+  }
+}

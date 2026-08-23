@@ -65,7 +65,7 @@ export function unescapeEntities(s: string): string {
 export function uploadErrorMsg(code: number): string {
   switch (code) {
     case 400:
-      return 'Set a nickname and avatar before uploading'
+      return 'Profile required'
     case 413:
       return 'Image exceeds the size limit'
     case 415:
@@ -96,14 +96,21 @@ export function parseRoomData(el: HTMLElement | null): {
   roomId: string
   title: string
   emoji?: unknown[]
+  uploadHost?: string
 } {
   if (!el || !el.textContent) return { roomId: '', title: '' }
   try {
-    const data = JSON.parse(el.textContent) as { roomId?: string; title?: string; emoji?: unknown }
+    const data = JSON.parse(el.textContent) as {
+      roomId?: string
+      title?: string
+      emoji?: unknown
+      uploadHost?: string
+    }
     return {
       roomId: data.roomId ?? '',
       title: data.title ?? '',
       emoji: Array.isArray(data.emoji) ? data.emoji : undefined,
+      uploadHost: typeof data.uploadHost === 'string' ? data.uploadHost : undefined,
     }
   } catch {
     return { roomId: '', title: '' }
@@ -129,6 +136,9 @@ function init(): void {
   const roomData = parseRoomData(document.getElementById('room-data'))
   const roomId = roomData.roomId
   const title = roomData.title
+  // Origin of the site's upload storage host; used to pick the image referrer
+  // policy (strict-origin-when-cross-origin for same-host images, else no-referrer).
+  const uploadHost = roomData.uploadHost
 
   const msgList = el<HTMLDivElement>('msg-list')
   const userList = el<HTMLDivElement>('user-list')
@@ -307,7 +317,7 @@ function init(): void {
       const msgSpan = document.createElement('span')
       msgSpan.className = 'msg'
       msgSpan.style.color = item.msgcolor || '#3d3d3d'
-      containsLink = renderMarkdown(msgSpan, msg, emojiMap).containsLink
+      containsLink = renderMarkdown(msgSpan, msg, emojiMap, uploadHost).containsLink
 
       if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
 
@@ -901,7 +911,9 @@ function init(): void {
   // Hide the upload entry until the profile gate (name + avatar cookies) is
   // satisfied — POST /upload returns 400 otherwise (see src/router/upload.ts).
   function refreshUploadVisibility(): void {
-    const ok = getCookie('name') !== '' && getCookie('avatar') !== ''
+    const name = getCookie('name').trim()
+    const avatar = getCookie('avatar').trim()
+    const ok = name !== '' && !name.startsWith('user_') && avatar !== ''
     uploadBtn.hidden = !ok
   }
 
@@ -918,6 +930,7 @@ function init(): void {
     fd.append('file', file)
 
     uploadBtn.disabled = true
+    uploadBtn.classList.add('uploading')
     fetch('/upload', { method: 'POST', body: fd })
       .then(async (res) => {
         if (res.status === 200) {
@@ -941,6 +954,7 @@ function init(): void {
       })
       .finally(() => {
         uploadBtn.disabled = false
+        uploadBtn.classList.remove('uploading')
       })
   })
 

@@ -366,7 +366,7 @@ describe('buildEmojiMap', () => {
 
 describe('BUILTIN_EMOJI_ENTRIES', () => {
   test('fallback remote pack URL', () => {
-    expect(BUILTIN_EMOJI_ENTRIES).toEqual(['https://www.nanoka.top/images/stamp/GBC/'])
+    expect(BUILTIN_EMOJI_ENTRIES).toEqual(['https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/'])
   })
 })
 

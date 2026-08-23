@@ -173,6 +173,7 @@ export function renderMarkdown(
   el: HTMLElement,
   src: string,
   emojiMap?: Map<string, string>,
+  uploadHost?: string,
 ): { containsLink: boolean } {
   if (typeof document === 'undefined') {
     // No DOM available — fall back to plain text when the element allows it.
@@ -183,7 +184,7 @@ export function renderMarkdown(
   const nodes = parseMarkdown(src)
   let containsLink = false
   for (const node of nodes) {
-    if (renderNode(el, node, emojiMap)) containsLink = true
+    if (renderNode(el, node, emojiMap, uploadHost)) containsLink = true
   }
   return { containsLink }
 }
@@ -192,15 +193,36 @@ function renderChildren(
   el: HTMLElement,
   children: MdNode[],
   emojiMap?: Map<string, string>,
+  uploadHost?: string,
 ): boolean {
   let containsLink = false
   for (const child of children) {
-    if (renderNode(el, child, emojiMap)) containsLink = true
+    if (renderNode(el, child, emojiMap, uploadHost)) containsLink = true
   }
   return containsLink
 }
 
-function renderNode(el: HTMLElement, node: MdNode, emojiMap?: Map<string, string>): boolean {
+/**
+ * Decides the `referrerPolicy` for a rendered image.
+ *
+ * Images hosted on the site's own upload domain get
+ * `strict-origin-when-cross-origin` (so the CDN can attribute referrals without
+ * leaking the full URL); every other image (external markdown links, emoji,
+ * avatars) keeps `no-referrer`. `uploadHost` is an origin string
+ * (scheme://host[:port]); unparseable URLs (e.g. data:) fall through to
+ * `no-referrer`.
+ */
+function referrerPolicyFor(url: string, uploadHost?: string): string {
+  if (!uploadHost) return 'no-referrer'
+  try {
+    if (new URL(url).origin === uploadHost) return 'strict-origin-when-cross-origin'
+  } catch {
+    // unparseable → keep no-referrer
+  }
+  return 'no-referrer'
+}
+
+function renderNode(el: HTMLElement, node: MdNode, emojiMap?: Map<string, string>, uploadHost?: string): boolean {
   switch (node.type) {
     case 'text':
       renderTextWithEmoji(el, node.text ?? '', emojiMap)
@@ -221,25 +243,25 @@ function renderNode(el: HTMLElement, node: MdNode, emojiMap?: Map<string, string
     }
     case 'bold': {
       const b = document.createElement('b')
-      renderChildren(b, node.children ?? [], emojiMap)
+      renderChildren(b, node.children ?? [], emojiMap, uploadHost)
       el.appendChild(b)
       return false
     }
     case 'italic': {
       const em = document.createElement('em')
-      renderChildren(em, node.children ?? [], emojiMap)
+      renderChildren(em, node.children ?? [], emojiMap, uploadHost)
       el.appendChild(em)
       return false
     }
     case 'strike': {
       const s = document.createElement('s')
-      renderChildren(s, node.children ?? [], emojiMap)
+      renderChildren(s, node.children ?? [], emojiMap, uploadHost)
       el.appendChild(s)
       return false
     }
     case 'quote': {
       const blockquote = document.createElement('blockquote')
-      renderChildren(blockquote, node.children ?? [], emojiMap)
+      renderChildren(blockquote, node.children ?? [], emojiMap, uploadHost)
       el.appendChild(blockquote)
       return false
     }
@@ -249,7 +271,7 @@ function renderNode(el: HTMLElement, node: MdNode, emojiMap?: Map<string, string
       a.target = '_blank'
       a.rel = 'nofollow noreferrer noopener'
       a.className = 'link'
-      renderChildren(a, node.children ?? [], emojiMap)
+      renderChildren(a, node.children ?? [], emojiMap, uploadHost)
       el.appendChild(a)
       return true
     }
@@ -258,7 +280,7 @@ function renderNode(el: HTMLElement, node: MdNode, emojiMap?: Map<string, string
       img.src = node.url ?? ''
       img.alt = node.text ?? ''
       img.loading = 'lazy'
-      img.referrerPolicy = 'no-referrer'
+      img.referrerPolicy = referrerPolicyFor(node.url ?? '', uploadHost)
       img.className = 'md-img'
       el.appendChild(img)
       return false

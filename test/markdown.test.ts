@@ -177,6 +177,50 @@ describe('renderMarkdown — DOM safety', () => {
     expect(img!.src).toBe('https://x/a.png')
   })
 
+  describe('renderMarkdown — referrer policy by upload host', () => {
+    const UPLOAD_HOST = 'https://cdn.example.com'
+
+    it('uses strict-origin-when-cross-origin for same-host upload images', () => {
+      const el = document.createElement('div')
+      renderMarkdown(el, '![alt](https://cdn.example.com/uploads/abc.avif)', undefined, UPLOAD_HOST)
+      const img = el.querySelector('img')
+      expect(img).not.toBeNull()
+      expect(img!.referrerPolicy).toBe('strict-origin-when-cross-origin')
+    })
+
+    it('keeps no-referrer for external markdown images', () => {
+      const el = document.createElement('div')
+      renderMarkdown(el, '![alt](https://other.com/pic.png)', undefined, UPLOAD_HOST)
+      const img = el.querySelector('img')
+      expect(img).not.toBeNull()
+      expect(img!.referrerPolicy).toBe('no-referrer')
+    })
+
+    it('keeps no-referrer for data: images', () => {
+      const el = document.createElement('div')
+      renderMarkdown(el, '![alt](data:image/png;base64,xxx)', undefined, UPLOAD_HOST)
+      const img = el.querySelector('img')
+      expect(img).not.toBeNull()
+      expect(img!.referrerPolicy).toBe('no-referrer')
+    })
+
+    it('keeps no-referrer when no uploadHost is provided', () => {
+      const el = document.createElement('div')
+      renderMarkdown(el, '![alt](https://cdn.example.com/uploads/abc.avif)')
+      const img = el.querySelector('img')
+      expect(img).not.toBeNull()
+      expect(img!.referrerPolicy).toBe('no-referrer')
+    })
+
+    it('matches on origin only (ignores path prefix in publicUrl)', () => {
+      const el = document.createElement('div')
+      renderMarkdown(el, '![alt](https://cdn.example.com/sub/path/x.webp)', undefined, UPLOAD_HOST)
+      const img = el.querySelector('img')
+      expect(img).not.toBeNull()
+      expect(img!.referrerPolicy).toBe('strict-origin-when-cross-origin')
+    })
+  })
+
   it('renders matched :keyword: emoji as an img and keeps unmatched literal', () => {
     const el = document.createElement('div')
     const emojiMap = new Map([['wave', 'https://x/wave.png']])

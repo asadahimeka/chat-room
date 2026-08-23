@@ -226,4 +226,4 @@ export function replaceEmojiTokens(
 }
 
 /** Fallback when config `emoji[]` is empty (client wiring happens in T6/T7). */
-export const BUILTIN_EMOJI_ENTRIES: unknown[] = ['https://www.nanoka.top/images/stamp/GBC/']
+export const BUILTIN_EMOJI_ENTRIES: unknown[] = ['https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/']

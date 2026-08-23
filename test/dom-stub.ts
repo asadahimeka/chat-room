@@ -73,6 +73,10 @@ class StubElement implements StubNode {
   referrerPolicy = ''
   /** Minimal style surface (background etc.) for avatar/monogram building. */
   style: Record<string, string> = {}
+  /** Button/form element disabled state — needed for upload button tests. */
+  disabled = false
+  /** Hidden attribute — reflects HTML hidden="" (used by refreshUploadVisibility). */
+  hidden = false
   /** Set when textContent is assigned; overrides child concatenation. */
   private _textContent: string | null = null
   private _classes = new Set<string>()

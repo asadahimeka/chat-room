@@ -31,16 +31,24 @@
  * ever reaches the document unescaped.
  */
 
+import { uploadOrigin } from '../config'
+
 type RoomPageProps = {
   roomId: string
   title?: string
   emoji?: unknown[]
+  /** Overrides the derived upload storage origin; tests inject a fixed value. */
+  uploadHost?: string
 }
 
-export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string {
+export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostProp }: RoomPageProps): string {
   const pageTitle = `${roomId} - Chat Room`
   const dataObj: Record<string, unknown> = { roomId, title: title ?? '' }
   if (emoji !== undefined) dataObj.emoji = emoji
+  // Origin of the upload storage host, so the client can apply a distinct
+  // referrer policy to same-host images. Empty when not configured.
+  const uploadHost = uploadHostProp ?? uploadOrigin()
+  if (uploadHost) dataObj.uploadHost = uploadHost
   const data = JSON.stringify(dataObj)
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
@@ -108,7 +116,7 @@ export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string 
             <button id="emoji-btn" class="composer-btn" type="button" aria-label="Emoji"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
             <button id="settings-btn" class="composer-btn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></button>
             <button id="upload-btn" class="composer-btn" type="button" aria-label="Upload image"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
-            <input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+            <input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" hidden>
             <button id="send-btn" type="button">
               <svg class="send-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
               <span class="send-label">Send</span>

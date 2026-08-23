@@ -4,9 +4,32 @@ import { createUploadRouter, parseIp } from '../src/router/upload.ts'
 import type { UploadDeps } from '../src/router/upload.ts'
 
 const PNG_HEADER = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]
+// GIF89a magic (first 4 bytes); rest is irrelevant for magic detection.
+const GIF_HEADER = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]
+// ISO-BMFF: 4-byte size, 'ftyp', brand 'avif'.
+const AVIF_HEADER = [0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]
+// 'ftyp' present but an unknown brand → must be rejected as unsupported.
+const FAKE_FTYP_HEADER = [0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x78, 0x78, 0x78, 0x78]
 
 function pngFile(extra: number[] = []): File {
   return new File([new Uint8Array([...PNG_HEADER, ...extra])], 'a.png', { type: 'image/png' })
+}
+
+function gifFile(extra: number[] = []): File {
+  return new File([new Uint8Array([...GIF_HEADER, ...extra])], 'a.gif', { type: 'image/gif' })
+}
+
+function avifFile(extra: number[] = []): File {
+  return new File([new Uint8Array([...AVIF_HEADER, ...extra])], 'a.avif', { type: 'image/avif' })
+}
+
+function fakeFtypFile(): File {
+  return new File([new Uint8Array([...FAKE_FTYP_HEADER])], 'a.bin', { type: 'application/octet-stream' })
+}
+
+/** Mock compressor that returns a fixed artifact of the given format/size. */
+function mockCompress(format: 'avif' | 'webp', byteLength = 100): UploadDeps['compressImage'] {
+  return async () => ({ data: new Uint8Array(byteLength), format })
 }
 
 function uploadRequest(
@@ -33,6 +56,9 @@ function makeRouter(extra: Partial<UploadDeps> = {}): Elysia<any, any, any, any,
   return createUploadRouter({
     s3Writer: async () => 'https://cdn/x.png',
     getRemoteAddress: (req) => req.headers.get('x-client-ip'),
+    // Default to a mock compressor so quota/size/magic tests stay fast and don't
+    // depend on a valid raster fixture. Compression-specific tests override this.
+    compressImage: mockCompress('avif'),
     ...extra,
   })
 }
@@ -81,7 +107,7 @@ describe('POST /upload', () => {
   })
 
   test('oversized file → 413 file too large', async () => {
-    const router = makeRouter({ maxBytes: 10 })
+    const router = makeRouter({ inputMaxBytes: 10 })
     const big = new Uint8Array([...PNG_HEADER, ...new Array(100).fill(0)])
     const res = await router.handle(
       uploadRequest(formWithFile(new File([big], 'a.png', { type: 'image/png' })), {
@@ -122,31 +148,104 @@ describe('POST /upload', () => {
     expect(nextDay.status).toBe(200)
   })
 
-  test('valid PNG + fake s3Writer → 200 with url', async () => {
+  test('valid PNG + fake s3Writer → 200 with .avif url (compressed)', async () => {
     const fake = async (key: string, body: Uint8Array) => {
       expect(key.startsWith('uploads/')).toBe(true)
-      expect(key.endsWith('.png')).toBe(true)
+      expect(key.endsWith('.avif')).toBe(true)
       expect(body.length).toBeGreaterThan(0)
       return `https://cdn.example.com/${key}`
     }
-    const router = makeRouter({ s3Writer: fake })
+    const router = makeRouter({ s3Writer: fake, compressImage: mockCompress('avif') })
     const res = await router.handle(uploadRequest(formWithFile(pngFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.url).toMatch(/^https:\/\/cdn\.example\.com\/uploads\/[0-9a-f-]{36}\.png$/)
+    expect(body.url).toMatch(/^https:\/\/cdn\.example\.com\/uploads\/[0-9a-f-]{36}\.avif$/)
   })
 
   test('no s3Writer + no S3 env → 503 storage unavailable', async () => {
     const saved = process.env.S3_ACCESS_KEY_ID
     delete process.env.S3_ACCESS_KEY_ID
     try {
-      const router = makeRouter({ s3Writer: undefined })
+      const router = makeRouter({ s3Writer: undefined, compressImage: mockCompress('avif') })
       const res = await router.handle(uploadRequest(formWithFile(pngFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
       expect(res.status).toBe(503)
       expect(await res.json()).toEqual({ error: 'storage unavailable' })
     } finally {
       if (saved !== undefined) process.env.S3_ACCESS_KEY_ID = saved
     }
+  })
+
+  test('AVIF magic accepted → 200 with .avif url', async () => {
+    const router = makeRouter({ s3Writer: async () => 'https://cdn/x.avif', compressImage: mockCompress('avif') })
+    const res = await router.handle(uploadRequest(formWithFile(avifFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).url).toMatch(/\.avif$/)
+  })
+
+  test('ftyp with unknown brand → 415 unsupported type', async () => {
+    const router = makeRouter({ compressImage: mockCompress('avif') })
+    const res = await router.handle(uploadRequest(formWithFile(fakeFtypFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(res.status).toBe(415)
+    expect(await res.json()).toEqual({ error: 'unsupported type' })
+  })
+
+  test('input exceeds inputMaxBytes → 413 file too large', async () => {
+    const router = makeRouter({ inputMaxBytes: 10, compressImage: mockCompress('avif') })
+    const big = new Uint8Array([...PNG_HEADER, ...new Array(100).fill(0)])
+    const res = await router.handle(
+      uploadRequest(formWithFile(new File([big], 'a.png', { type: 'image/png' })), { cookie: COOKIES, ip: '1.2.3.4' }),
+    )
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual({ error: 'file too large' })
+  })
+
+  test('compressed artifact exceeds maxBytes → 413 compressed image too large', async () => {
+    const router = makeRouter({ maxBytes: 5, compressImage: mockCompress('avif', 100) })
+    const res = await router.handle(uploadRequest(formWithFile(pngFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual({ error: 'compressed image too large' })
+  })
+
+  test('compression failure → 500 with semantic message', async () => {
+    const router = makeRouter({
+      compressImage: async () => {
+        throw new Error('image compression failed')
+      },
+    })
+    const res = await router.handle(uploadRequest(formWithFile(pngFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'image compression failed' })
+  })
+
+  test('compression timeout → 500 with timeout message', async () => {
+    const router = makeRouter({
+      compressImage: async () => {
+        throw new Error('image compression timed out')
+      },
+    })
+    const res = await router.handle(uploadRequest(formWithFile(pngFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'image compression timed out' })
+  })
+
+  test('GIF input → 200 with .webp url (animated webp)', async () => {
+    const router = makeRouter({ s3Writer: async () => 'https://cdn/x.webp', compressImage: mockCompress('webp') })
+    const res = await router.handle(uploadRequest(formWithFile(gifFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).url).toMatch(/\.webp$/)
+  })
+
+  test('compression is invoked with gif→webp and png→avif formats', async () => {
+    const seen: string[] = []
+    const router = makeRouter({
+      compressImage: async (_buf, opts) => {
+        seen.push(opts.fmt)
+        return { data: new Uint8Array(10), format: opts.fmt }
+      },
+    })
+    await router.handle(uploadRequest(formWithFile(gifFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    await router.handle(uploadRequest(formWithFile(pngFile()), { cookie: COOKIES, ip: '1.2.3.4' }))
+    expect(seen).toEqual(['webp', 'avif'])
   })
 })
 

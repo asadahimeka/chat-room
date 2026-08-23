@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig } from '../src/config.ts'
+import { loadConfig, uploadOrigin } from '../src/config.ts'
 
 const tempDirs: string[] = []
 
@@ -33,6 +33,11 @@ describe('loadConfig', () => {
       publicUrl: '',
       dailyQuotaPerIp: 50,
       maxBytes: 5242880,
+      inputMaxBytes: 26214400,
+      compressQuality: 50,
+      compressEffort: 4,
+      maxDimension: 2048,
+      compressTimeoutMs: 30000,
     })
   })
 
@@ -102,6 +107,11 @@ describe('loadConfig', () => {
         '  publicUrl: https://cdn.example.com',
         '  dailyQuotaPerIp: 10',
         '  maxBytes: 1048576',
+        '  inputMaxBytes: 12345678',
+        '  compressQuality: 42',
+        '  compressEffort: 6',
+        '  maxDimension: 1024',
+        '  compressTimeoutMs: 15000',
       ].join('\n'),
     )
     const config = loadConfig({}, file)
@@ -112,7 +122,33 @@ describe('loadConfig', () => {
       publicUrl: 'https://cdn.example.com',
       dailyQuotaPerIp: 10,
       maxBytes: 1048576,
+      inputMaxBytes: 12345678,
+      compressQuality: 42,
+      compressEffort: 6,
+      maxDimension: 1024,
+      compressTimeoutMs: 15000,
     })
+  })
+
+  test('upload numeric fields accept string form (Bun.YAML.parse dual type)', () => {
+    const file = writeTempYaml(
+      [
+        'upload:',
+        '  maxBytes: "1048576"',
+        '  inputMaxBytes: "12345678"',
+        '  compressQuality: "42"',
+        '  compressEffort: "6"',
+        '  maxDimension: "1024"',
+        '  compressTimeoutMs: "15000"',
+      ].join('\n'),
+    )
+    const config = loadConfig({}, file)
+    expect(config.upload.maxBytes).toBe(1048576)
+    expect(config.upload.inputMaxBytes).toBe(12345678)
+    expect(config.upload.compressQuality).toBe(42)
+    expect(config.upload.compressEffort).toBe(6)
+    expect(config.upload.maxDimension).toBe(1024)
+    expect(config.upload.compressTimeoutMs).toBe(15000)
   })
 
   test('partial upload YAML falls back per-field to defaults', () => {
@@ -121,5 +157,61 @@ describe('loadConfig', () => {
     expect(config.upload.bucket).toBe('only-bucket')
     expect(config.upload.region).toBe('us-east-1')
     expect(config.upload.maxBytes).toBe(5242880)
+  })
+})
+
+describe('uploadOrigin', () => {
+  test('derives origin from publicUrl when set', () => {
+    expect(
+      uploadOrigin({
+        region: '',
+        bucket: '',
+        endpoint: 'https://s3.us-east-1.amazonaws.com',
+        publicUrl: 'https://cdn.example.com/images',
+        dailyQuotaPerIp: 0,
+        maxBytes: 0,
+        inputMaxBytes: 0,
+        compressQuality: 0,
+        compressEffort: 0,
+        maxDimension: 0,
+        compressTimeoutMs: 0,
+      }),
+    ).toBe('https://cdn.example.com')
+  })
+
+  test('falls back to endpoint origin when publicUrl is empty', () => {
+    expect(
+      uploadOrigin({
+        region: '',
+        bucket: '',
+        endpoint: 'https://s3.ap-northeast-1.amazonaws.com',
+        publicUrl: '',
+        dailyQuotaPerIp: 0,
+        maxBytes: 0,
+        inputMaxBytes: 0,
+        compressQuality: 0,
+        compressEffort: 0,
+        maxDimension: 0,
+        compressTimeoutMs: 0,
+      }),
+    ).toBe('https://s3.ap-northeast-1.amazonaws.com')
+  })
+
+  test('returns empty string when neither is a parseable URL', () => {
+    expect(
+      uploadOrigin({
+        region: '',
+        bucket: '',
+        endpoint: '',
+        publicUrl: '',
+        dailyQuotaPerIp: 0,
+        maxBytes: 0,
+        inputMaxBytes: 0,
+        compressQuality: 0,
+        compressEffort: 0,
+        maxDimension: 0,
+        compressTimeoutMs: 0,
+      }),
+    ).toBe('')
   })
 })

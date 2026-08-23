@@ -34,6 +34,12 @@ describe('renderRoomPage room page', () => {
     expect(html).toContain('"emoji":["https://x/a/"]')
   })
 
+  it('injects the upload storage origin into room-data', () => {
+    // Explicit injection keeps this test hermetic (independent of local config.yml).
+    const html = renderRoomPage({ roomId: '@demo', uploadHost: 'https://cdn.example.com' })
+    expect(html).toContain('"uploadHost":"https://cdn.example.com"')
+  })
+
   it('escapes a malicious title inside room-data (no raw <script>)', () => {
     const html = renderRoomPage({ roomId: '@demo', title: '<script>alert(1)</script>' })
     // The JSON.stringify output must escape the angle brackets so no raw <script> survives.
@@ -138,8 +144,8 @@ describe('renderRoomPage room page', () => {
     const html = renderRoomPage({ roomId: '@demo' })
     expect(html).toContain('id="upload-btn"')
     expect(html).toContain('id="upload-input"')
-    expect(html).toContain('accept="image/png,image/jpeg,image/gif,image/webp"')
-    expect(html).toContain('<input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>')
+    expect(html).toContain('accept="image/png,image/jpeg,image/gif,image/webp,image/avif"')
+    expect(html).toContain('<input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" hidden>')
   })
 
   it('renders three composer icon buttons', () => {

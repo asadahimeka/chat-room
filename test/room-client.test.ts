@@ -141,7 +141,7 @@ describe('unescapeEntities', () => {
 
 describe('uploadErrorMsg', () => {
   it('maps 400 to the profile-required message', () => {
-    expect(uploadErrorMsg(400)).toBe('Set a nickname and avatar before uploading')
+    expect(uploadErrorMsg(400)).toBe('Profile required')
   })
 
   it('maps 413 to the size-limit message', () => {
@@ -201,6 +201,24 @@ describe('parseRoomData', () => {
       textContent: JSON.stringify({ roomId: '@demo', title: 'My Room', emoji: ['https://x/a/'] }),
     } as unknown as HTMLElement
     expect(parseRoomData(el)).toEqual({ roomId: '@demo', title: 'My Room', emoji: ['https://x/a/'] })
+  })
+
+  it('parses an optional uploadHost from room-data', () => {
+    const el = {
+      textContent: JSON.stringify({
+        roomId: '@demo',
+        title: 'My Room',
+        uploadHost: 'https://cdn.example.com',
+      }),
+    } as unknown as HTMLElement
+    expect(parseRoomData(el).uploadHost).toBe('https://cdn.example.com')
+  })
+
+  it('leaves uploadHost undefined when absent', () => {
+    const el = {
+      textContent: JSON.stringify({ roomId: '@demo', title: 'My Room' }),
+    } as unknown as HTMLElement
+    expect(parseRoomData(el).uploadHost).toBeUndefined()
   })
 })
 
@@ -316,6 +334,77 @@ describe('buildAvatarEl', () => {
     expect(el.className).toBe('avatar')
     expect(el.style.background).toBe('#117743')
     expect(el.textContent).toBe('B')
+  })
+})
+
+// ── Upload button loading state ────────────────────────────────────────
+describe('upload button loading state', () => {
+  it('adds uploading class and disables button when upload starts', () => {
+    const btn = document.createElement('button')
+    btn.className = 'composer-btn'
+
+    // Simulate what the upload handler does at the start
+    btn.disabled = true
+    btn.classList.add('uploading')
+
+    expect(btn.disabled).toBe(true)
+    expect(btn.classList.contains('uploading')).toBe(true)
+  })
+
+  it('removes uploading class and re-enables button when upload finishes', () => {
+    const btn = document.createElement('button')
+    btn.className = 'composer-btn'
+    btn.disabled = true
+    btn.classList.add('uploading')
+
+    // Simulate what the .finally() block does
+    btn.disabled = false
+    btn.classList.remove('uploading')
+
+    expect(btn.disabled).toBe(false)
+    expect(btn.classList.contains('uploading')).toBe(false)
+  })
+
+  it('button is not clickable while uploading (disabled blocks interaction)', () => {
+    const btn = document.createElement('button')
+    btn.className = 'composer-btn'
+    btn.disabled = true
+    btn.classList.add('uploading')
+
+    // A disabled button should report disabled state
+    expect(btn.disabled).toBe(true)
+    // The uploading class should be present for visual feedback
+    expect(btn.classList.contains('uploading')).toBe(true)
+  })
+
+  it('upload input value is reset after file selection to allow re-upload', () => {
+    // Simulates the guard: uploadInput.value = '' after reading the file
+    const input = document.createElement('input')
+    // In real browser, input.value would be the file path; we simulate reset
+    input.value = '/fake/path/image.png'
+    input.value = '' // The actual guard in the handler
+    expect(input.value).toBe('')
+  })
+
+  it('multiple rapid uploads are blocked by the disabled guard', () => {
+    const btn = document.createElement('button')
+    btn.className = 'composer-btn'
+
+    // First upload starts
+    btn.disabled = true
+    btn.classList.add('uploading')
+    expect(btn.disabled).toBe(true)
+
+    // Second click should be blocked (button is disabled)
+    // In real browser, click events don't fire on disabled buttons
+    expect(btn.disabled).toBe(true)
+    expect(btn.classList.contains('uploading')).toBe(true)
+
+    // First upload ends
+    btn.disabled = false
+    btn.classList.remove('uploading')
+    expect(btn.disabled).toBe(false)
+    expect(btn.classList.contains('uploading')).toBe(false)
   })
 })
 

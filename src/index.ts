@@ -3,6 +3,7 @@ import { config } from './config'
 import { miscRouter } from './router/misc'
 import { roomRouter } from './router/room'
 import { createUploadRouter } from './router/upload'
+import { createS3WriterFromConfig } from './utils/s3-writer'
 import { RoomState } from './ws/room-state'
 import { registerWs } from './ws/handler'
 
@@ -11,9 +12,14 @@ const roomState = new RoomState()
 // Production upload router: trust flag from config; real peer IP resolved via
 // the verified Bun server.requestIP (returns {address,...}). The closure reads
 // app.server lazily so it is populated by the time a request arrives.
+// S3 writer is built from config.yml's upload bucket/region/endpoint (creds
+// from env only); when creds are absent it stays null and upload.ts keeps its
+// legacy Bun.s3 fallback.
+const s3Writer = createS3WriterFromConfig(process.env)
 const uploadRouter = createUploadRouter({
   trustCloudflare: config.trustCloudflare,
   getRemoteAddress: (request) => app.server?.requestIP(request)?.address ?? null,
+  ...(s3Writer ? { s3Writer } : {}),
 })
 
 async function resolveStatic(rel: string): Promise<Response> {

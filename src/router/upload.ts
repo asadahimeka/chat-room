@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { config } from '../config'
 import { getCookie } from '../utils/input'
 import { parseClientIp } from '../utils/ip'
+import { compressImage } from '../utils/image-compress'
 
 export interface UploadDeps {
   /** Injected S3 writer; returns the public URL. Prod uses Bun.s3. */
@@ -18,6 +19,27 @@ export interface UploadDeps {
   getRemoteAddress?: (request: Request) => string | null
   /** Override for the quota-map capacity cap (default 5000); used by tests. */
   quotaCapacity?: number
+  /** Raw input byte ceiling before compression (default config.upload.inputMaxBytes). */
+  inputMaxBytes?: number
+  /** AVIF/WebP encode quality (default config.upload.compressQuality). */
+  compressQuality?: number
+  /** AVIF encode effort (default config.upload.compressEffort). */
+  compressEffort?: number
+  /** Longest edge (px) to fit inside before encoding (default config.upload.maxDimension). */
+  maxDimension?: number
+  /** Per-request compression hard timeout (ms, default config.upload.compressTimeoutMs). */
+  compressTimeoutMs?: number
+  /** Injectable compressor; prod uses the real Worker-backed implementation. */
+  compressImage?: (
+    buf: Uint8Array,
+    opts: {
+      fmt: 'avif' | 'webp'
+      quality: number
+      effort: number
+      maxDim: number
+      timeoutMs: number
+    },
+  ) => Promise<{ data: Uint8Array; format: 'avif' | 'webp' }>
 }
 
 /** Hard cap on quota-map entries to bound memory under IP-spoofing pressure. */
@@ -51,7 +73,26 @@ const MAGIC_TYPES: Array<{ ext: string; test: (b: Uint8Array) => boolean }> = [
       b[10] === 0x42 &&
       b[11] === 0x50,
   },
+  {
+    // ISO-BMFF: bytes 4..7 === 'ftyp', brand at 8..11 is 'avif' or 'avis'.
+    ext: '.avif',
+    test: (b) =>
+      b.length >= 12 &&
+      b[4] === 0x66 &&
+      b[5] === 0x74 &&
+      b[6] === 0x79 &&
+      b[7] === 0x70 &&
+      (asciiEq(b, 8, 'avif') || asciiEq(b, 8, 'avis')),
+  },
 ]
+
+/** Compares `b[offset..offset+len)` against an ASCII string. */
+function asciiEq(b: Uint8Array, offset: number, s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    if (b[offset + i] !== s.charCodeAt(i)) return false
+  }
+  return true
+}
 
 function detectExt(bytes: Uint8Array): string | null {
   for (const { ext, test } of MAGIC_TYPES) {
@@ -88,6 +129,12 @@ export function createUploadRouter(deps: UploadDeps = {}): Elysia<any, any, any,
   const quota = new Map<string, QuotaEntry>()
   const quotaPerIp = deps.dailyQuotaPerIp ?? config.upload.dailyQuotaPerIp
   const maxBytes = deps.maxBytes ?? config.upload.maxBytes
+  const inputMaxBytes = deps.inputMaxBytes ?? config.upload.inputMaxBytes
+  const compressQuality = deps.compressQuality ?? config.upload.compressQuality
+  const compressEffort = deps.compressEffort ?? config.upload.compressEffort
+  const maxDimension = deps.maxDimension ?? config.upload.maxDimension
+  const compressTimeoutMs = deps.compressTimeoutMs ?? config.upload.compressTimeoutMs
+  const compress = deps.compressImage ?? compressImage
   const capacity = deps.quotaCapacity ?? QUOTA_CAPACITY
 
   // Bounds the quota map so a flood of distinct spoofed IPs cannot grow it
@@ -142,8 +189,10 @@ export function createUploadRouter(deps: UploadDeps = {}): Elysia<any, any, any,
       return Response.json({ error: 'file required' }, { status: 400 })
     }
 
-    // d. Size.
-    if (file.size > maxBytes) {
+    console.log(`[${new Date().toLocaleString('zh')}] Upload file ${file.name}(${file.type} ${file.size}b) from ${name}(${ip})`)
+
+    // d. Size — raw input ceiling (compression happens after this gate).
+    if (file.size > inputMaxBytes) {
       return Response.json({ error: 'file too large' }, { status: 413 })
     }
 
@@ -159,14 +208,40 @@ export function createUploadRouter(deps: UploadDeps = {}): Elysia<any, any, any,
       return Response.json({ error: 'storage unavailable' }, { status: 503 })
     }
 
-    // g. Write.
-    const key = `uploads/${crypto.randomUUID()}${ext}`
+    // g. Read the full body, then compress through the Worker pipeline.
+    //    GIF input → animated WebP; everything else → AVIF. No fallback to the
+    //    original bytes on failure.
     const body = new Uint8Array(await file.arrayBuffer())
+    const fmt: 'avif' | 'webp' = ext === '.gif' ? 'webp' : 'avif'
+
+    let compressed: { data: Uint8Array; format: 'avif' | 'webp' }
+    try {
+      compressed = await compress(body, {
+        fmt,
+        quality: compressQuality,
+        effort: compressEffort,
+        maxDim: maxDimension,
+        timeoutMs: compressTimeoutMs,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'image compression failed'
+      return Response.json({ error: message }, { status: 500 })
+    }
+
+    // h. Output size guard (compressed artifact must stay within maxBytes).
+    if (compressed.data.length > maxBytes) {
+      return Response.json({ error: 'compressed image too large' }, { status: 413 })
+    }
+
+    // i. Write. The stored key extension follows the compressed format, not the
+    //    input format.
+    const outExt = compressed.format === 'webp' ? '.webp' : '.avif'
+    const key = `uploads/${crypto.randomUUID()}${outExt}`
     let url: string
     if (deps.s3Writer) {
-      url = await deps.s3Writer(key, body)
+      url = await deps.s3Writer(key, compressed.data)
     } else {
-      await Bun.s3.file(key).write(body)
+      await Bun.s3.file(key).write(compressed.data)
       url = config.upload.publicUrl
         ? `${config.upload.publicUrl}/${key}`
         : `${config.upload.endpoint}/${config.upload.bucket}/${key}`
