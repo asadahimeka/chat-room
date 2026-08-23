@@ -4,8 +4,6 @@
 
 一个现代化的聊天室（Bun 原生重写版）
 
-![Snipaste_2020-08-12_18-42-17.png](https://i.loli.net/2020/08/12/mxQph9ToEzufgPt.png)
-
 [Demo](https://chat.getloli.com/room/@demo)
 
 ## 技术栈
@@ -55,8 +53,6 @@ https://chat.getloli.com/room/@:name?title=the title whatever
 
 [https://chat.getloli.com/room/@test?title=a simple title](https://chat.getloli.com/room/@test?title=a%20simple%20title)
 
-可以在新标签页打开，也可以嵌入 iframe，[示例](https://count.getloli.com/)。
-
 ### HTTP API
 
 | 路由 | 说明 |
@@ -72,20 +68,7 @@ https://chat.getloli.com/room/@:name?title=the title whatever
 
 借助 SVG `<foreignObject>` 的特性，我们可以让一个 SVG 元素包含一个标准的 HTML 页面。
 
-众所周知，SVG 可以作为图片被引用。
-
-然后……
-
-[![SVG Charts](https://chat.getloli.com/room/@test/svg?width=750&height=360&limit=20&theme=light&fontSize=13&title=jad@github.com:%20%7E)](https://chat.getloli.com/room/@test)
-
-**神奇！** 一个可以插入到任何支持图片的文档中的**实时**图表。
-
-就像这位老哥的[个人主页](https://github.com/journey-ad)一样。
-
-这是全部参数，自己动手试试：
-```
-https://chat.getloli.com/room/@test/svg?width=750&height=360&limit=20&theme=light&fontSize=13&title=jad@github.com: ~
-```
+示例：[![SVG Charts](https://chat.getloli.com/room/@test/svg?width=750&height=360&limit=20&theme=light&fontSize=13&title=jad@github.com:%20%7E)](https://chat.getloli.com/room/@test)
 
 ### WebSocket 协议
 
@@ -109,7 +92,7 @@ https://chat.getloli.com/room/@test/svg?width=750&height=360&limit=20&theme=ligh
 
 ### 双主题
 
-界面跟随系统的 `prefers-color-scheme` 自动切换浅色 / 深色主题，无需手动配置。
+界面跟随系统的 `prefers-color-scheme` 自动切换浅色 / 深色主题。
 
 ### 数据说明
 

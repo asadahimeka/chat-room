@@ -1,11 +1,42 @@
+# 端口
 port: 3000
+
+# SQLite 数据库位置
 dbPath: ./db/msg.db
+
+# 是否信任 Cloudflare 边缘传入的 cf-connecting-ip 作为真实客户端 IP。
+# 默认 false：不信任（该头可被伪造）。仅当你确实把服务架在 Cloudflare 之后才设 true。
+trustCloudflare: false
+
+# 表情包配置，兼容 Waline 格式
 emoji:
+  - https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/
+  - https://npm.elemecdn.com/@waline/emojis@1.2.0/tieba/
+  - https://npm.elemecdn.com/@waline/emojis@1.2.0/qq/
   - https://www.nanoka.top/images/stamp/GBC/
+  - https://www.nanoka.top/images/stamp/BTR/
+  - https://www.nanoka.top/images/stamp/MYGO/
+  - https://www.nanoka.top/images/stamp/AM/
+  - https://www.nanoka.top/images/stamp/BDR/
+  - https://emoji.shojo.cn/bili/webp/蜜汁工坊（充电）/
+  - https://emoji.shojo.cn/bili/webp/公主连结/
+  - https://emoji.shojo.cn/bili/webp/双生视界·花嫁/
+  - https://emoji.shojo.cn/bili/webp/星梦手记/
+  - https://emoji.shojo.cn/bili/webp/雫るる/
+  - https://emoji.shojo.cn/bili/webp/雫るる制服ver/
+  - https://emoji.shojo.cn/bili/webp/Akie秋绘/
+  - https://emoji.shojo.cn/bili/webp/九重紫/
+  - https://emoji.shojo.cn/bili/webp/鹿乃桜帆/
+  - https://emoji.shojo.cn/bili/webp/梦音茶糯/
+  - https://valine-emoji.bili33.top/Menhera-chan/
+  - https://valine-emoji.bili33.top/Majotabi/
+  - https://gcore.jsdelivr.net/gh/GamerNoTitle/ValineCDN@master/Tsuri-me-ju_mimi/
+
+# S3 上传配置
 upload:
   region: us-east-1
   bucket: chat-room
   endpoint: https://s3.us-east-1.amazonaws.com
   publicUrl: ""        # 可选：公开访问前缀，空则用 endpoint+bucket 拼
-  dailyQuotaPerIp: 50
-  maxBytes: 5242880
+  dailyQuotaPerIp: 5
+  maxBytes: 1048576
