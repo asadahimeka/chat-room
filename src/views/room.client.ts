@@ -464,7 +464,7 @@ function init(): void {
   function connect(): void {
     setStatus('connecting...', 'connecting')
     const sid = genSid()
-    const ws = new WebSocket(`ws://${location.host}/ws?roomId=${encodeURIComponent(roomId)}&t=${sid}`)
+    const ws = new WebSocket(`${location.protocol == 'https:' ? 'wss' : 'ws'}://${location.host}/ws?roomId=${encodeURIComponent(roomId)}&t=${sid}`)
     socket = ws
 
     ws.onopen = () => {
