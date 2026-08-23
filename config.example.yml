@@ -1,0 +1,30 @@
+# 端口
+port: 3000
+
+# SQLite 数据库位置
+dbPath: ./db/msg.db
+
+# 是否信任 Cloudflare 边缘传入的 cf-connecting-ip 作为真实客户端 IP。
+# 默认 false：不信任（该头可被伪造）。仅当你确实把服务架在 Cloudflare 之后才设 true。
+trustCloudflare: false
+
+# 表情包配置，兼容 Waline 格式
+emoji:
+  - https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/
+  - https://npm.elemecdn.com/@waline/emojis@1.2.0/tieba/
+  - https://npm.elemecdn.com/@waline/emojis@1.2.0/qq/
+
+# S3 上传配置
+# AccessKey 和 SecretKey 通过环境变量 S3_ACCESS_KEY_ID 和 S3_SECRET_ACCESS_KEY 设置
+upload:
+  region: us-east-1
+  bucket: chat-room
+  endpoint: https://s3.us-east-1.amazonaws.com
+  publicUrl: ""        # 可选：公开访问前缀，空则用 endpoint+bucket 拼
+  dailyQuotaPerIp: 5
+  maxBytes: 1048576        # 压缩产物大小上限（413 拒绝）
+  inputMaxBytes: 5242880   # 原始输入大小上限（宽松于产物上限）
+  compressQuality: 50      # AVIF/WebP 编码质量 (1-100)
+  compressEffort: 4        # AVIF 编码 effort，越大越慢压缩率越高 (0-9)
+  maxDimension: 2048       # 编码前最长边适配（不放大）
+  compressTimeoutMs: 30000 # 单次压缩硬超时，超时拒绝上传

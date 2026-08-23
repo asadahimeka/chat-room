@@ -29,17 +29,50 @@ $ bun test       # 运行测试
 
 ## 配置
 
-通过环境变量配置，默认值如下：
-
-| 环境变量 | 默认值 | 说明 |
-| -------- | ------ | ---- |
-| `PORT`   | `3000` | 服务监听端口 |
-| `DB_PATH`| `./db/msg.db` | SQLite 数据库文件路径 |
+复制 `config.example.yml` 为 `config.yml` 进行配置（该文件已被 gitignore，不会入库）：
 
 ```shell
-# 例如：
-$ PORT=8080 DB_PATH=./data.db bun run start
+$ cp config.example.yml config.yml
 ```
+
+| 配置项 | 默认值 | 说明 |
+| ------ | ------ | ---- |
+| `port` | `3000` | 服务监听端口 |
+| `dbPath` | `./db/msg.db` | SQLite 数据库文件路径 |
+| `trustCloudflare` | `false` | 是否信任 Cloudflare 传入的 `cf-connecting-ip`（仅在 CF 之后部署时开启） |
+| `emoji` | — | 表情包源列表，兼容 Waline 格式 |
+
+部分配置也可用环境变量覆盖：`PORT`、`DB_PATH`、`TRUST_CLOUDFLARE`。
+
+### 图片上传（S3）
+
+上传的图片会经服务端压缩后写入 S3 兼容存储：
+
+- 静态图（jpg/png/webp/bmp/avif）统一转码为 **AVIF**，GIF 转为**动画 WebP**
+- 双层大小限制：原始输入 ≤ `inputMaxBytes`，压缩产物 ≤ `maxBytes`；压缩失败/超时/产物超限均拒绝上传
+- 压缩在独立 Worker 中执行（EXIF 自动旋转、最长边适配 `maxDimension`），带硬超时
+
+`config.yml` 的 `upload` 段决定"写到哪"：
+
+| 配置项 | 说明 |
+| ------ | ---- |
+| `bucket` / `region` / `endpoint` | S3 兼容存储目标（AWS S3 必填 region；R2/MinIO/B2 等填各自 endpoint） |
+| `publicUrl` | 可选公开访问前缀（CDN/桶公网地址）；同时作为图片 Referer 防盗链的判定域 |
+| `maxBytes` / `inputMaxBytes` | 压缩产物 / 原始输入大小上限 |
+| `dailyQuotaPerIp` | 单 IP 每日上传配额 |
+| `compressQuality` / `compressEffort` / `maxDimension` / `compressTimeoutMs` | 压缩参数（质量、编码力度、尺寸上限、超时） |
+
+凭据只通过环境变量提供（不写入 config.yml）：
+
+```shell
+# S3_* 优先，缺省回退 AWS_*
+S3_ACCESS_KEY_ID=xxx
+S3_SECRET_ACCESS_KEY=xxx
+```
+
+> 未设置凭据时上传路由仍可用，但 S3 写入会失败。
+
+如需 Referer 防盗链，在 CDN 层（CloudFront Functions / Cloudflare WAF 等）对图片路径配置 Referer 白名单——站内上传图渲染时带 `strict-origin-when-cross-origin` Referrer，外链图与表情包保持 `no-referrer`。
 
 ## 使用
 
