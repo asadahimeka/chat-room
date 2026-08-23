@@ -12,7 +12,7 @@ import { Notify } from './notify'
 import { linkify } from './linkify'
 import type { JoinedUser, MsgItem } from '../ws/protocol'
 import { renderMarkdown } from '../utils/markdown'
-import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES, type EmojiPack } from '../utils/emoji'
+import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
 
 export function formatTime(ts: number): string {
@@ -138,8 +138,6 @@ function init(): void {
   const msgInput = el<HTMLTextAreaElement>('msg-input')
   const nameColor = el<HTMLInputElement>('name-color')
   const msgColor = el<HTMLInputElement>('msg-color')
-  const nameSwatch = el<HTMLSpanElement>('name-swatch')
-  const msgSwatch = el<HTMLSpanElement>('msg-swatch')
   const sendBtn = el<HTMLButtonElement>('send-btn')
   const header = el<HTMLElement>('room-header')
 
@@ -153,14 +151,6 @@ function init(): void {
   const limit = 100
   let loading = false
   let finished = false
-
-  function syncSwatch(input: HTMLInputElement, swatch: HTMLElement | null): void {
-    if (swatch) swatch.style.background = input.value
-  }
-  syncSwatch(nameColor, nameSwatch)
-  syncSwatch(msgColor, msgSwatch)
-  nameColor.addEventListener('input', () => syncSwatch(nameColor, nameSwatch))
-  msgColor.addEventListener('input', () => syncSwatch(msgColor, msgSwatch))
 
   const themeToggle = document.getElementById('theme-toggle') as HTMLButtonElement | null
   if (themeToggle) {
@@ -190,6 +180,8 @@ function init(): void {
     bold?: boolean
     italic?: boolean
     bubble?: string
+    namecolor?: string
+    msgcolor?: string
   } = {}
   try {
     const stored: unknown = JSON.parse(localStorage.getItem('settings') || '{}')
@@ -200,6 +192,17 @@ function init(): void {
     userPrefs = {}
   }
 
+  // Client-side hex color validation (mirrors server REGEX_HEX_COLOR intent).
+  // Invalid or missing values fall back to the design defaults.
+  const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+  const DEFAULT_NAME_COLOR = '#117743'
+  const DEFAULT_MSG_COLOR = '#3d3d3d'
+  function sanitizeColor(v: unknown, fallback: string): string {
+    return typeof v === 'string' && HEX_COLOR.test(v) ? v : fallback
+  }
+  userPrefs.namecolor = sanitizeColor(userPrefs.namecolor, DEFAULT_NAME_COLOR)
+  userPrefs.msgcolor = sanitizeColor(userPrefs.msgcolor, DEFAULT_MSG_COLOR)
+
   // Emoji map starts empty (messages render fine before packs load); the async
   // bootstrap fills it from the room-data config or the builtin fallback.
   let emojiMap = new Map<string, string>()
@@ -209,6 +212,8 @@ function init(): void {
     .then((packs) => {
       emojiPacks = packs
       emojiMap = buildEmojiMap(packs)
+      // Packs arrived after the panel was opened — refresh it in place.
+      if (!emojiPanel.hidden) renderEmojiPanel()
     })
     .catch(() => {
       // Emoji loading is best-effort; plain text rendering still works.
@@ -245,6 +250,7 @@ function init(): void {
       meta?: string
     },
     position: 'before' | 'after' = 'after',
+    forceScroll = false,
   ): void {
     if (item.type === 'msg' && item.uid && isBlocked(item.uid, blockList)) return
 
@@ -303,6 +309,8 @@ function init(): void {
       msgSpan.style.color = item.msgcolor || '#3d3d3d'
       containsLink = renderMarkdown(msgSpan, msg, emojiMap).containsLink
 
+      if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
+
       bubble.appendChild(nickname)
       bubble.appendChild(msgSpan)
       applyMetaClasses(bubble, safeParseMeta(item.meta))
@@ -314,7 +322,9 @@ function init(): void {
       msgList.prepend(node)
     } else {
       msgList.appendChild(node)
-      if (scrollFlag) msgList.scrollTop = msgList.scrollHeight
+      // Own messages always land at the bottom; otherwise only scroll when the
+      // reader was already pinned there (so reading history isn't yanked down).
+      if (scrollFlag || forceScroll) msgList.scrollTop = msgList.scrollHeight
     }
 
     // Group consecutive messages from the same user (avatar/meta hidden via .threaded)
@@ -427,8 +437,8 @@ function init(): void {
           uid: userInfo.uid,
           name,
           msg,
-          namecolor: nameColor.value,
-          msgcolor: msgColor.value,
+          namecolor: userPrefs.namecolor,
+          msgcolor: userPrefs.msgcolor,
           meta: serializeOutgoingMeta(userPrefs),
         },
       }),
@@ -436,6 +446,9 @@ function init(): void {
     msgInput.value = ''
     msgInput.style.height = ''
     autoGrow()
+    // Fallback: make sure the composer's own send lands the view at the bottom
+    // even before the WS echo round-trips back (the echo also force-scrolls).
+    msgList.scrollTop = msgList.scrollHeight
   }
 
   function connect(): void {
@@ -492,6 +505,9 @@ function init(): void {
               msg: m.msg,
             })
           }
+          // Own echoed message forces the view to the bottom; others only
+          // scroll if the reader was already pinned there.
+          const isSelf = userInfo != null && m.uid === userInfo.uid
           appendMsg({
             type: 'msg',
             name: m.name,
@@ -501,8 +517,8 @@ function init(): void {
             namecolor: m.namecolor,
             msgcolor: m.msgcolor,
             highlight,
-            meta: m.meta,
-          })
+            meta: m.meta ?? undefined,
+          }, 'after', isSelf)
           break
         }
         case 'rename': {
@@ -528,10 +544,22 @@ function init(): void {
     }
   }
 
+  // /record returns DB rows with column name `time`; WS MsgItem carries `ts`.
+  // Reading .ts here silently yields undefined → "Invalid Date" on all history.
+  interface RecordRow {
+    name: string
+    uid: string
+    time: number
+    msg: string
+    namecolor?: string
+    msgcolor?: string
+    meta?: string | null
+  }
+
   function fetchRecord(): void {
     fetch(`/room/@${roomId}/record?limit=${limit}`)
       .then((r) => r.json())
-      .then((data: MsgItem[]) => {
+      .then((data: RecordRow[]) => {
         setStatus('connecting...', 'connecting')
         const reversed = [...data].reverse()
         for (const m of reversed) {
@@ -539,11 +567,11 @@ function init(): void {
             type: 'msg',
             name: m.name,
             uid: m.uid,
-            time: formatTime(m.ts),
+            time: formatTime(m.time),
             msg: m.msg,
             namecolor: m.namecolor,
             msgcolor: m.msgcolor,
-            meta: m.meta,
+            meta: m.meta ?? undefined,
           })
         }
         // Initial load lands the reader on the newest message.
@@ -561,7 +589,7 @@ function init(): void {
     const scrollHeight = msgList.scrollHeight
     fetch(`/room/@${roomId}/record?offset=${offset}&limit=${limit}`)
       .then((r) => r.json())
-      .then((data: MsgItem[]) => {
+      .then((data: RecordRow[]) => {
         if (data.length === 0) {
           finished = true
           appendMsg({ type: 'sys', msg: 'No more record.' }, 'before')
@@ -573,11 +601,11 @@ function init(): void {
               type: 'msg',
               name: m.name,
               uid: m.uid,
-              time: formatTime(m.ts),
+              time: formatTime(m.time),
               msg: m.msg,
               namecolor: m.namecolor,
               msgcolor: m.msgcolor,
-              meta: m.meta,
+              meta: m.meta ?? undefined,
             },
             'before',
           )
@@ -610,6 +638,7 @@ function init(): void {
     if (!name || !userInfo || name === userInfo.name) return
     setCookie('name', name)
     userInfo.name = name
+    refreshUploadVisibility()
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'change-name', data: name }))
     }
@@ -665,6 +694,8 @@ function init(): void {
   setItalic.checked = userPrefs.italic === true
   setAvatar.value = typeof userPrefs.avatar === 'string' ? userPrefs.avatar : ''
   setBubble.value = pick(userPrefs.bubble, BUBBLE_VALUES, 'default')
+  nameColor.value = userPrefs.namecolor
+  msgColor.value = userPrefs.msgcolor
 
   function persistPrefs(): void {
     try {
@@ -700,7 +731,16 @@ function init(): void {
     // A valid avatar URL also sets the profile cookie (T8 upload gate).
     if (/^(https:\/\/|data:image\/)/.test(userPrefs.avatar)) {
       setCookie('avatar', userPrefs.avatar)
+      refreshUploadVisibility()
     }
+  })
+  nameColor.addEventListener('input', () => {
+    userPrefs.namecolor = sanitizeColor(nameColor.value, DEFAULT_NAME_COLOR)
+    persistPrefs()
+  })
+  msgColor.addEventListener('input', () => {
+    userPrefs.msgcolor = sanitizeColor(msgColor.value, DEFAULT_MSG_COLOR)
+    persistPrefs()
   })
 
   function openSettings(): void {
@@ -721,6 +761,76 @@ function init(): void {
   // ── Emoji picker panel ─────────────────────────────────────────────────
   const emojiBtn = el<HTMLButtonElement>('emoji-btn')
   const emojiPanel = el<HTMLDivElement>('emoji-panel')
+  // Index of the currently displayed pack; defaults to the first available.
+  let emojiPackIndex = 0
+
+  // Panel-level guard: any click inside the panel (tabs, grid images, future
+  // content) must never reach the document-level outside-click dismiss below.
+  emojiPanel.addEventListener('click', (e) => e.stopPropagation())
+
+  function renderEmojiGrid(): HTMLElement {
+    const grid = document.createElement('div')
+    grid.className = 'emoji-grid'
+    const pack = emojiPacks[emojiPackIndex]
+    if (pack) {
+      // Prefixed packs insert a qualified token (:prefixkw:) so same-named
+      // emojis across packs stay distinct; unprefixed packs keep the bare :kw:.
+      const tokenPrefix = typeof pack.prefix === 'string' ? pack.prefix : ''
+      for (const kw of pack.keywords) {
+        const url = pack.urlOf(kw)
+        if (!url.startsWith('https://')) continue
+        const img = document.createElement('img')
+        img.src = url
+        img.alt = `:${tokenPrefix}${kw}:`
+        img.title = kw
+        img.loading = 'lazy'
+        img.referrerPolicy = 'no-referrer'
+        img.addEventListener('click', () => insertEmojiToken(tokenPrefix + kw))
+        grid.appendChild(img)
+      }
+    }
+    return grid
+  }
+
+  function renderEmojiTabs(): HTMLElement {
+    const tabs = document.createElement('div')
+    tabs.className = 'emoji-tabs'
+    emojiPacks.forEach((pack, i) => {
+      const tab = document.createElement('button')
+      tab.type = 'button'
+      tab.className = 'emoji-tab' + (i === emojiPackIndex ? ' active' : '')
+      tab.title = pack.name
+      const iconUrl = pack.icon ? pack.urlOf(pack.icon) : ''
+      if (iconUrl.startsWith('https://')) {
+        const icon = document.createElement('img')
+        icon.className = 'emoji-tab-icon'
+        icon.src = iconUrl
+        icon.alt = pack.name
+        icon.loading = 'lazy'
+        icon.referrerPolicy = 'no-referrer'
+        tab.appendChild(icon)
+      } else {
+        const ph = document.createElement('span')
+        ph.className = 'emoji-tab-ph'
+        ph.textContent = pack.name.charAt(0).toUpperCase()
+        tab.appendChild(ph)
+      }
+      tab.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        if (emojiPackIndex === i) return
+        // Remember the tab rail's horizontal scroll so switching packs doesn't
+        // snap it back to the left (renderEmojiPanel rebuilds the DOM).
+        const prevTabs = emojiPanel.querySelector('.emoji-tabs') as HTMLElement | null
+        const savedScroll = prevTabs ? prevTabs.scrollLeft : 0
+        emojiPackIndex = i
+        renderEmojiPanel()
+        const newTabs = emojiPanel.querySelector('.emoji-tabs') as HTMLElement | null
+        if (newTabs) newTabs.scrollLeft = savedScroll
+      })
+      tabs.appendChild(tab)
+    })
+    return tabs
+  }
 
   function renderEmojiPanel(): void {
     emojiPanel.textContent = ''
@@ -731,20 +841,8 @@ function init(): void {
       emojiPanel.appendChild(hint)
       return
     }
-    for (const pack of emojiPacks) {
-      for (const kw of pack.keywords) {
-        const url = pack.urlOf(kw)
-        if (!url.startsWith('https://')) continue
-        const img = document.createElement('img')
-        img.src = url
-        img.alt = `:${kw}:`
-        img.title = kw
-        img.loading = 'lazy'
-        img.referrerPolicy = 'no-referrer'
-        img.addEventListener('click', () => insertEmojiToken(kw))
-        emojiPanel.appendChild(img)
-      }
-    }
+    emojiPanel.appendChild(renderEmojiGrid())
+    emojiPanel.appendChild(renderEmojiTabs())
   }
 
   function insertEmojiToken(kw: string): void {
@@ -800,6 +898,13 @@ function init(): void {
   const uploadBtn = el<HTMLButtonElement>('upload-btn')
   const uploadInput = el<HTMLInputElement>('upload-input')
 
+  // Hide the upload entry until the profile gate (name + avatar cookies) is
+  // satisfied — POST /upload returns 400 otherwise (see src/router/upload.ts).
+  function refreshUploadVisibility(): void {
+    const ok = getCookie('name') !== '' && getCookie('avatar') !== ''
+    uploadBtn.hidden = !ok
+  }
+
   uploadBtn.addEventListener('click', () => {
     uploadInput.click()
   })
@@ -841,6 +946,7 @@ function init(): void {
 
   setStatus('get record...', 'connecting')
   fetchRecord()
+  refreshUploadVisibility()
 }
 
 if (typeof document !== 'undefined') {

@@ -119,6 +119,21 @@ describe('renderRoomPage room page', () => {
     }
   })
 
+  it('places the color pickers inside the settings modal, not the composer', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    // Contract IDs #name-color / #msg-color must still exist (frozen contract).
+    expect(html).toContain('id="name-color"')
+    expect(html).toContain('id="msg-color"')
+    // They live inside the settings modal block.
+    const modal = html.slice(html.indexOf('id="settings-modal"'), html.indexOf('id="toast"'))
+    expect(modal).toContain('id="name-color"')
+    expect(modal).toContain('id="msg-color"')
+    // The composer must no longer carry the composer-left color block.
+    const composer = html.slice(html.indexOf('class="composer"'), html.indexOf('id="emoji-panel"'))
+    expect(composer).not.toContain('composer-left')
+    expect(composer).not.toContain('class="color-picker"')
+  })
+
   it('contains the image upload button and hidden file input', () => {
     const html = renderRoomPage({ roomId: '@demo' })
     expect(html).toContain('id="upload-btn"')

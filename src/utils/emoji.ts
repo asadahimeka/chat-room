@@ -16,6 +16,9 @@ export interface EmojiPack {
   name: string
   icon: string
   keywords: string[]
+  /** Optional pack prefix. When set, the panel inserts qualified tokens
+   *  (`:prefixkw:`) so same-named emojis across packs stay addressable. */
+  prefix?: string
   urlOf(kw: string): string
 }
 
@@ -50,6 +53,7 @@ export function parseInlineEmojiConfig(entries: unknown[]): ParsedEmojiConfig {
       name,
       icon,
       keywords,
+      prefix,
       // Waline join rule: folder + (prefix ?? '') + kw + '.' + type.
       // Without a folder there is no base URL → urlOf returns '' and the
       // pack is filtered out later by buildEmojiMap.
@@ -85,22 +89,30 @@ export async function loadRemoteManifest(
       return null
     }
     const obj = data as Record<string, unknown>
-    const { name, type, icon, items } = obj
-    if (
-      typeof name !== 'string' ||
-      typeof type !== 'string' ||
-      typeof icon !== 'string' ||
-      !Array.isArray(items)
-    ) {
+    const { name, items } = obj
+    // Required shape: name (string) + items (string[]). `icon`, `prefix`, and
+    // `type` are all OPTIONAL — Valine-style manifests carry none of them and
+    // store full filenames (incl. extension) directly in `items`.
+    if (typeof name !== 'string' || !Array.isArray(items)) {
       console.warn(`[emoji] invalid manifest shape: ${base}info.json`)
       return null
     }
+    // `type` optional: missing or non-string → '' (Valine shape, no extension).
+    const type = typeof obj.type === 'string' ? obj.type : ''
+    // `prefix` optional: missing or non-string → '' (GBC/AM packs have none).
+    const prefix = typeof obj.prefix === 'string' ? obj.prefix : ''
+    // `icon` optional: missing or non-string → '' (falls back to placeholder).
+    const icon = typeof obj.icon === 'string' ? obj.icon : ''
     const keywords = items.filter((it): it is string => typeof it === 'string')
     return {
       name,
       icon,
       keywords,
-      urlOf: (kw: string) => base + kw + '.' + type,
+      prefix,
+      // Waline-style (type present): base + prefix + kw + '.' + type.
+      // Valine-style (no type): items already carry the full filename, so the
+      // join is base + prefix + kw (no extension appended).
+      urlOf: (kw: string) => (type ? base + prefix + kw + '.' + type : base + prefix + kw),
     }
   } catch (err) {
     console.warn(`[emoji] manifest load failed: ${base}info.json — ${(err as Error).message ?? err}`)
@@ -126,21 +138,64 @@ export async function resolveEmojiConfig(
 /**
  * Flattens every pack keyword → its image URL. Any URL that does not start
  * with `https://` is skipped (defense in depth).
+ *
+ * Dual-layer registration per pack:
+ *   - **Qualified key** `prefix + kw` (only when the pack has a `prefix`): the
+ *     underlying files are uniquely named by prefix, so this key never collides
+ *     across packs and makes EVERY emoji addressable (`:weibo_smile:` vs
+ *     `:qq_smile:`). Clicking a prefixed pack's emoji inserts this qualified token.
+ *   - **Bare alias** `kw` (first pack wins): keeps historical plain `:kw:`
+ *     messages rendering. A later pack cannot rewrite an already-claimed bare
+ *     alias, so `:smile:` stays bound to whichever pack claimed it first.
  */
 export function buildEmojiMap(packs: EmojiPack[]): Map<string, string> {
   const map = new Map<string, string>()
   for (const pack of packs) {
+    const prefix = typeof pack.prefix === 'string' ? pack.prefix : ''
     for (const kw of pack.keywords) {
       const url = pack.urlOf(kw)
-      if (url.startsWith('https://')) {
-        map.set(kw, url)
-      }
+      if (!url.startsWith('https://')) continue
+      // Prefixed packs register their canonical qualified key — the underlying
+      // files are uniquely named by prefix, so this key never collides across
+      // packs and makes EVERY emoji addressable (:weibo_smile: vs :qq_smile:).
+      if (prefix && !map.has(prefix + kw)) map.set(prefix + kw, url)
+      // Bare alias (first pack wins) keeps historical plain :kw: messages rendering.
+      if (!map.has(kw)) map.set(kw, url)
     }
   }
   return map
 }
 
 export type EmojiTokenPart = { type: 'text'; text: string } | { type: 'img'; url: string }
+
+/**
+ * True when `src` is an "emoji-only" message: every `:keyword:` token resolves
+ * to an emoji image in `emojiMap` and all remaining text is whitespace. This is
+ * the decision used to enlarge standalone emoji. It mirrors the DOM result of
+ * `renderTextWithEmoji` (which uses the same `:([^:\s]+):` token regex):
+ *   - an unmatched `:x:` token counts as literal text → not emoji-only
+ *   - any non-whitespace remainder → not emoji-only
+ *   - zero resolved emoji → not emoji-only
+ * `emojiMap` must be non-empty or the result is always false (no emoji render).
+ */
+export function isEmojiOnlyMessage(src: string, emojiMap: Map<string, string>): boolean {
+  if (!emojiMap || emojiMap.size === 0) return false
+  const re = /:([^:\s]+):/g
+  let lastIndex = 0
+  let matched = false
+  let remainder = ''
+  let match: RegExpExecArray | null
+  while ((match = re.exec(src)) !== null) {
+    if (emojiMap.get(match[1])) {
+      matched = true
+      remainder += src.slice(lastIndex, match.index)
+      lastIndex = match.index + match[0].length
+    }
+  }
+  remainder += src.slice(lastIndex)
+  if (!matched) return false
+  return remainder.trim() === ''
+}
 
 /**
  * Splits `text` on `:keyword:` tokens that hit `map`. Hits become img parts;

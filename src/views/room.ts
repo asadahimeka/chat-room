@@ -13,16 +13,14 @@
  *   #msg-list      message list container
  *   #name-input    nickname input
  *   #msg-input     message textarea
- *   #name-color    name color picker
- *   #msg-color     message color picker
+ *   #name-color    name color picker (inside #settings-modal)
+ *   #msg-color     message color picker (inside #settings-modal)
  *   #send-btn      send button
  *   #toast         toast element
  * ──────────────────────────────────────────────────────────────────────
  *
  * Additional structural hooks (new, not part of the hard contract):
  *   #online-count-side  sidebar online count
- *   #name-swatch        name color swatch preview
- *   #msg-swatch         message color swatch preview
  *
  * Contract class names (matching the CSS task): `.room-layout`, `.sidebar`,
  * `.message-list`, `.composer`, `.status`, `.toast`.
@@ -104,22 +102,12 @@ export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string 
           </main>
           <footer class="composer">
             <input id="name-input" type="text" placeholder="nickname" maxlength="32">
-            <div class="composer-left">
-              <label class="color-picker" title="Name color">
-                <span class="swatch" id="name-swatch"></span>
-                <input id="name-color" type="color" value="#117743">
-              </label>
-              <label class="color-picker" title="Message color">
-                <span class="swatch" id="msg-swatch"></span>
-                <input id="msg-color" type="color" value="#3d3d3d">
-              </label>
-            </div>
             <div class="msg-input-wrap">
               <textarea id="msg-input" rows="1" placeholder="Say something…" maxlength="1000"></textarea>
             </div>
-            <button id="emoji-btn" class="composer-btn" type="button" aria-label="Emoji">😀</button>
-            <button id="settings-btn" class="composer-btn" type="button" aria-label="Settings">⚙️</button>
-            <button id="upload-btn" class="composer-btn" type="button" aria-label="Upload image">📷</button>
+            <button id="emoji-btn" class="composer-btn" type="button" aria-label="Emoji"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
+            <button id="settings-btn" class="composer-btn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></button>
+            <button id="upload-btn" class="composer-btn" type="button" aria-label="Upload image"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
             <input type="file" id="upload-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
             <button id="send-btn" type="button">
               <svg class="send-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
@@ -132,10 +120,17 @@ export function renderRoomPage({ roomId, title, emoji }: RoomPageProps): string 
           <div class="modal" role="dialog" aria-modal="true">
             <header class="modal-head"><span>Settings</span><button id="settings-close" type="button" aria-label="Close">×</button></header>
             <div class="modal-body">
+              <label>Name color <input type="color" id="name-color" value="#117743"></label>
+              <label>Message color <input type="color" id="msg-color" value="#3d3d3d"></label>
               <label>Font <select id="set-font"><option value="default">Default</option><option value="serif">Serif</option><option value="mono">Mono</option></select></label>
               <label>Size <select id="set-size"><option value="sm">Small</option><option value="md" selected>Medium</option><option value="lg">Large</option></select></label>
-              <label><input type="checkbox" id="set-bold"> Bold</label>
-              <label><input type="checkbox" id="set-italic"> Italic</label>
+              <div class="modal-row modal-style-row">
+                <span class="label-text">Style</span>
+                <div class="style-toggles">
+                  <label><input type="checkbox" id="set-bold"> Bold</label>
+                  <label><input type="checkbox" id="set-italic"> Italic</label>
+                </div>
+              </div>
               <label>Avatar URL <input type="url" id="set-avatar" placeholder="https://..."></label>
               <label>Bubble <select id="set-bubble"><option value="default">Default</option><option value="flat">Flat</option><option value="card">Card</option><option value="minimal">Minimal</option></select></label>
             </div>

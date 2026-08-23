@@ -443,6 +443,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Breathing room under the newest message so it never sticks to the edge */
+  padding-bottom: 20px;
 }
 
 /* Message row — avatar column + bubble column */
@@ -572,6 +574,30 @@ body {
   color: var(--text);
 }
 
+/* Inline emoji — sized to sit on the text baseline when mixed with words. */
+.message .msg img.emoji {
+  height: 2em;
+  width: auto;
+  vertical-align: text-bottom;
+  border-radius: 4px;
+}
+
+/* Standalone emoji message — images blow up to a readable stamp size. */
+.message .bubble.emoji-only .msg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.message .bubble.emoji-only .msg img.emoji {
+  height: auto;
+  width: auto;
+  max-width: 96px;
+  max-height: 96px;
+  vertical-align: baseline;
+}
+
 /* Consecutive messages from the same user group into a thread:
    hide the avatar + meta on all but the first, tighten spacing */
 .message.threaded {
@@ -595,6 +621,15 @@ body {
 
 .link:hover {
   color: var(--accent-strong);
+}
+
+/* Markdown-embedded images (incl. uploaded pictures) — capped so they can
+   never blow out the bubble; height follows width to keep the aspect ratio */
+.message .msg .md-img {
+  display: block;
+  max-width: min(100%, 320px);
+  height: auto;
+  border-radius: var(--radius-sm);
 }
 
 /* Highlighted @mention messages */
@@ -643,13 +678,6 @@ body {
   backdrop-filter: blur(8px);
 }
 
-.composer .composer-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 6px;
-}
-
 .composer input[type="text"],
 .composer textarea {
   font-family: var(--font-sans);
@@ -688,39 +716,6 @@ body {
   resize: none;
   overflow-y: auto;
   line-height: 1.45;
-}
-
-/* Color pickers — small round swatches */
-.color-picker {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  cursor: pointer;
-  transition: transform var(--dur) var(--ease-out), border-color var(--dur) var(--ease);
-}
-
-.color-picker input[type="color"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.color-picker .swatch {
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  pointer-events: none;
 }
 
 /* Send button — pill with a paper-plane glyph */
@@ -945,42 +940,52 @@ body {
     max-width: 94%;
   }
 
+  /* Two-row composer via flow layout (flex-wrap + order, no HTML change):
+     row 1 — nickname + color swatches + emoji/settings/upload,
+     row 2 — message input + send.
+     Order-based flow tolerates #upload-btn being hidden by the avatar gate
+     (the row just re-flows) — fixed grid areas would leave a hole. */
   .composer {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto;
-    grid-template-areas:
-      "name colors colors colors"
-      "input emoji settings send";
-    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px 10px;
     padding: 10px 10px 12px;
   }
 
   #name-input {
-    grid-area: name;
-    width: 100%;
-  }
-
-  .composer-left {
-    grid-area: colors;
-    justify-self: end;
-    padding-bottom: 0;
-  }
-
-  .msg-input-wrap {
-    grid-area: input;
+    order: 1;
+    flex: 1 1 96px;
+    width: auto;
+    min-width: 0;
   }
 
   #emoji-btn {
-    grid-area: emoji;
+    order: 3;
   }
 
   #settings-btn {
-    grid-area: settings;
+    order: 4;
+  }
+
+  #upload-btn {
+    order: 5;
+  }
+
+  /* ::after is a flex item: a full-width zero-height strip that forces the
+     wrap between the tool row and the message row. */
+  .composer::after {
+    content: "";
+    order: 6;
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  .msg-input-wrap {
+    order: 7;
   }
 
   #send-btn {
-    grid-area: send;
+    order: 8;
     padding: 0 14px;
   }
 }
@@ -1003,10 +1008,6 @@ body {
 
   #send-btn:hover {
     background: var(--accent-strong);
-  }
-
-  .color-picker:hover {
-    border-color: var(--border-strong);
   }
 }
 
@@ -1035,7 +1036,10 @@ body {
   display: none;
 }
 
-/* Composer icon buttons — circular, matching .theme-toggle's visual language */
+/* Composer icon buttons — circular, matching .theme-toggle's visual language.
+   The composer bottom-aligns its children (so controls stay pinned while the
+   textarea grows), which leaves these 34px circles sitting ~4px low against
+   the 42px send button / ~40px inputs — nudge them back to optical center. */
 .composer-btn {
   display: inline-flex;
   align-items: center;
@@ -1043,6 +1047,7 @@ body {
   width: 34px;
   height: 34px;
   flex: none;
+  margin-bottom: 4px;
   border: 1px solid var(--border);
   border-radius: 50%;
   background: var(--bg);
@@ -1052,6 +1057,13 @@ body {
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
     transform var(--dur) var(--ease-out), border-color var(--dur) var(--ease);
+}
+
+/* JS toggles the `hidden` attribute on #upload-btn until the avatar gate
+   passes; author display values defeat the UA [hidden] rule, so re-assert
+   it here (same treatment as .emoji-panel/.modal-backdrop above). */
+.composer-btn[hidden] {
+  display: none;
 }
 
 .composer-btn:active {
@@ -1130,8 +1142,28 @@ body {
 }
 
 .modal-body label:has(select),
-.modal-body label:has(input[type="url"]) {
+.modal-body label:has(input[type="url"]),
+.modal-body label:has(input[type="color"]) {
   justify-content: space-between;
+}
+
+/* Color swatch rows — label text left, circular swatch pinned to the right. */
+.modal-body label input[type="color"] {
+  margin-left: auto;
+}
+
+/* Style row — single "Style" label left, Bold + Italic toggles grouped right. */
+.modal-row.modal-style-row {
+  justify-content: space-between;
+}
+.modal-row.modal-style-row .label-text {
+  font-size: 13.5px;
+  color: var(--text);
+}
+.modal-row.modal-style-row .style-toggles {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .modal-body select,
@@ -1166,6 +1198,43 @@ body {
   cursor: pointer;
 }
 
+/* Row helper — groups controls on one line (e.g. the Style toggles).
+   Inherits the modal-body gap rhythm via its own gap. */
+.modal-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.modal-body input[type="color"] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.modal-body input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.modal-body input[type="color"]::-webkit-color-swatch {
+  border-radius: 50%;
+  border: 2px solid var(--border);
+}
+.modal-body input[type="color"]::-moz-color-swatch {
+  border-radius: 50%;
+  border: 2px solid var(--border);
+}
+.modal-body input[type="color"]:focus {
+  outline: none;
+}
+.modal-body input[type="color"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -1186,17 +1255,16 @@ body {
   }
 }
 
-/* Emoji picker panel — floating grid above the composer, origin-aware */
+/* Emoji picker panel — floating grid above the composer, origin-aware.
+   Flex column: a scrollable grid on top, a compact pack-tab bar pinned below. */
 .emoji-panel {
   position: fixed;
   z-index: 60;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
   width: min(320px, calc(100vw - 24px));
   max-height: 40vh;
-  overflow-y: auto;
-  padding: 10px;
+  overflow: hidden;
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1205,9 +1273,30 @@ body {
   animation: pop-in var(--dur) var(--ease-out);
 }
 
-.emoji-panel img {
-  width: 28px;
-  height: 28px;
+/* Scrollable emoji grid — fixed height so switching packs never changes the
+   panel's total height (no position jump). `align-content: start` keeps the
+   grid tracks pinned to the top (no vertical centering when a pack is short);
+   `place-items: center` centers each image within its fixed cell. */
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+  place-items: center;
+  align-content: start;
+  gap: 4px;
+  flex: none;
+  height: 240px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+/* Size grading: small native emojis (≤48px) show at their real size; large
+   series (nanoka/bili) scale down to the 48px cap. Cells stay a fixed 56px
+   min so the layout stays tidy regardless of source image dimensions. */
+.emoji-grid img {
+  max-width: 48px;
+  max-height: 48px;
+  width: auto;
+  height: auto;
   object-fit: contain;
   margin: auto;
   cursor: pointer;
@@ -1215,12 +1304,89 @@ body {
   transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease);
 }
 
+.emoji-grid:has(img[src*="@waline/emojis"]) {
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+}
+
+.emoji-grid img[src*="@waline/emojis"] {
+  width: 28px;
+  height: 28px;
+}
+
 .emoji-panel .emoji-hint {
-  grid-column: 1 / -1;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 8px;
   text-align: center;
   font-size: 12.5px;
   color: var(--text-muted);
+}
+
+/* Pack switcher — one tab per pack, pinned to the panel bottom.
+   Nowrap + horizontal scroll so many packs slide instead of wrapping. */
+.emoji-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  flex: none;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-inset);
+  overflow-x: auto;
+}
+
+/* Thin scrollbar for the tab rail (uses token colors). */
+.emoji-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+.emoji-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+.emoji-tabs::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+.emoji-tabs {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.emoji-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease-out), color var(--dur) var(--ease);
+}
+
+.emoji-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.emoji-tab-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.emoji-tab-ph {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Bubble style presets — applied via meta.bubble */
@@ -1302,7 +1468,7 @@ body {
     color: var(--accent);
   }
 
-  .emoji-panel img:hover {
+  .emoji-grid img:hover {
     background: var(--bg-inset);
     transform: scale(1.12);
   }
