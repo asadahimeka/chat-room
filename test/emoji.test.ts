@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   BUILTIN_EMOJI_ENTRIES,
   buildEmojiMap,
+  isEmojiImageUrl,
   isEmojiOnlyMessage,
   loadRemoteManifest,
   parseInlineEmojiConfig,
@@ -367,6 +368,40 @@ describe('buildEmojiMap', () => {
 describe('BUILTIN_EMOJI_ENTRIES', () => {
   test('fallback remote pack URL', () => {
     expect(BUILTIN_EMOJI_ENTRIES).toEqual(['https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/'])
+  })
+})
+
+describe('isEmojiImageUrl', () => {
+  const prefixes = ['https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/']
+
+  test('hit: https url starts with a prefix', () => {
+    expect(
+      isEmojiImageUrl(prefixes, 'https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/smile.png'),
+    ).toBe(true)
+  })
+
+  test('hit: matches any one of multiple prefixes', () => {
+    const ps = ['https://a.com/', 'https://b.com/']
+    expect(isEmojiImageUrl(ps, 'https://b.com/x.png')).toBe(true)
+    expect(isEmojiImageUrl(ps, 'https://a.com/y.png')).toBe(true)
+  })
+
+  test('miss: https url not under any prefix', () => {
+    expect(isEmojiImageUrl(prefixes, 'https://example.com/other.png')).toBe(false)
+  })
+
+  test('miss: http (non-https) url is rejected', () => {
+    expect(isEmojiImageUrl(prefixes, 'http://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/smile.png')).toBe(
+      false,
+    )
+  })
+
+  test('miss: empty prefixes array', () => {
+    expect(isEmojiImageUrl([], 'https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/smile.png')).toBe(false)
+  })
+
+  test('miss: non-string url', () => {
+    expect(isEmojiImageUrl(prefixes, 123 as unknown as string)).toBe(false)
   })
 })
 

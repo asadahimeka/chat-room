@@ -282,6 +282,11 @@ function renderNode(el: HTMLElement, node: MdNode, emojiMap?: Map<string, string
       img.loading = 'lazy'
       img.referrerPolicy = referrerPolicyFor(node.url ?? '', uploadHost)
       img.className = 'md-img'
+      // On load failure, fall back to the alt text (no broken-image icon).
+      img.onerror = () => {
+        const text = document.createTextNode(node.text ?? '')
+        img.replaceWith(text)
+      }
       el.appendChild(img)
       return false
     }
@@ -306,12 +311,18 @@ function renderTextWithEmoji(el: HTMLElement, text: string, emojiMap?: Map<strin
     }
     const url = emojiMap.get(match[1])
     if (url && isSafeUrl(url)) {
+      const token = match[0]
       const img = document.createElement('img')
       img.className = 'emoji'
       img.loading = 'lazy'
       img.referrerPolicy = 'no-referrer'
       img.src = url
-      img.alt = match[0]
+      img.alt = token
+      // On load failure, replace the broken image with the literal :keyword: text.
+      img.onerror = () => {
+        const text = document.createTextNode(token)
+        img.replaceWith(text)
+      }
       el.appendChild(img)
     } else {
       el.appendChild(document.createTextNode(match[0]))

@@ -22,6 +22,170 @@ export interface EmojiPack {
   urlOf(kw: string): string
 }
 
+/**
+ * Pluggable key/value store for the manifest cache. Defaults to a
+ * try/catch-wrapped `localStorage` (private-mode safe); tests inject an
+ * in-memory implementation. `keys()` is optional and only used for the
+ * write-cap eviction.
+ */
+export interface ManifestCacheStore {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+  removeItem(key: string): void
+  keys?(): string[]
+}
+
+/** localStorage key prefix for cached manifests. */
+export const CACHE_PREFIX = 'emoji-manifest:'
+/** Cache TTL: 24 hours. */
+export const CACHE_TTL = 24 * 60 * 60 * 1000
+/** Max number of cached manifest keys before the oldest is evicted. */
+export const CACHE_MAX = 50
+
+interface CachedManifest {
+  name: string
+  icon: string
+  prefix: string
+  type: string
+  keywords: string[]
+  ts: number
+}
+
+/**
+ * Returns a cache store. Uses `globalThis.localStorage` when present
+ * (every access wrapped in try/catch for private-mode throws); otherwise
+ * falls back to a throwaway in-memory Map so the function still works in
+ * Node/test environments.
+ */
+export function defaultStore(): ManifestCacheStore {
+  const ls = (globalThis as { localStorage?: Storage }).localStorage
+  if (!ls) {
+    const mem = new Map<string, string>()
+    return {
+      getItem: (k) => mem.get(k) ?? null,
+      setItem: (k, v) => void mem.set(k, v),
+      removeItem: (k) => void mem.delete(k),
+      keys: () => [...mem.keys()],
+    }
+  }
+  return {
+    getItem: (k) => {
+      try {
+        return ls.getItem(k)
+      } catch {
+        return null
+      }
+    },
+    setItem: (k, v) => {
+      try {
+        ls.setItem(k, v)
+      } catch {
+        // quota exceeded / private mode — drop silently
+      }
+    },
+    removeItem: (k) => {
+      try {
+        ls.removeItem(k)
+      } catch {
+        // ignore
+      }
+    },
+    keys: () => {
+      try {
+        const out: string[] = []
+        for (let i = 0; i < ls.length; i++) {
+          const k = ls.key(i)
+          if (k) out.push(k)
+        }
+        return out
+      } catch {
+        return []
+      }
+    },
+  }
+}
+
+/** Reads + validates a cached manifest; returns null on miss / corruption. */
+function readCache(store: ManifestCacheStore, key: string): CachedManifest | null {
+  let raw: string | null = null
+  try {
+    raw = store.getItem(key)
+  } catch {
+    return null
+  }
+  if (!raw) return null
+  try {
+    const obj = JSON.parse(raw) as Partial<CachedManifest>
+    if (typeof obj.name !== 'string' || !Array.isArray(obj.keywords)) return null
+    return {
+      name: obj.name,
+      icon: typeof obj.icon === 'string' ? obj.icon : '',
+      prefix: typeof obj.prefix === 'string' ? obj.prefix : '',
+      type: typeof obj.type === 'string' ? obj.type : '',
+      keywords: obj.keywords.filter((k): k is string => typeof k === 'string'),
+      ts: typeof obj.ts === 'number' ? obj.ts : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Writes a manifest to the cache, evicting the oldest entry first when the
+ * `emoji-manifest:` key count has reached CACHE_MAX. All access is guarded.
+ */
+function writeCache(store: ManifestCacheStore, key: string, value: CachedManifest): void {
+  if (typeof store.keys === 'function') {
+    try {
+      const mine = store.keys().filter((k) => k.startsWith(CACHE_PREFIX))
+      if (mine.length >= CACHE_MAX) {
+        let oldestKey: string | null = null
+        let oldestTs = Infinity
+        for (const k of mine) {
+          const raw = store.getItem(k)
+          if (!raw) continue
+          try {
+            const o = JSON.parse(raw) as { ts?: number }
+            if (typeof o.ts === 'number' && o.ts < oldestTs) {
+              oldestTs = o.ts
+              oldestKey = k
+            }
+          } catch {
+            // unparseable → treat as oldest so it gets evicted
+            oldestKey = k
+            oldestTs = -Infinity
+          }
+        }
+        if (oldestKey) store.removeItem(oldestKey)
+      }
+    } catch {
+      // eviction is best-effort
+    }
+  }
+  try {
+    store.setItem(key, JSON.stringify(value))
+  } catch {
+    // ignore write failures
+  }
+}
+
+/**
+ * Rebuilds an EmojiPack from cached fields. The urlOf join rule mirrors the
+ * live fetch path: Waline shape (type present) appends `.{type}`; Valine shape
+ * (no type) uses the keyword as the full filename.
+ */
+function packFromCache(c: CachedManifest, base: string): EmojiPack {
+  const type = c.type
+  const prefix = c.prefix
+  return {
+    name: c.name,
+    icon: c.icon,
+    keywords: c.keywords,
+    prefix,
+    urlOf: (kw: string) => (type ? base + prefix + kw + '.' + type : base + prefix + kw),
+  }
+}
+
 export interface ParsedEmojiConfig {
   packs: EmojiPack[]
   remoteUrls: string[]
@@ -71,21 +235,34 @@ export function parseInlineEmojiConfig(entries: unknown[]): ParsedEmojiConfig {
 export async function loadRemoteManifest(
   url: string,
   fetchImpl: typeof fetch = fetch,
+  store: ManifestCacheStore = defaultStore(),
 ): Promise<EmojiPack | null> {
   if (!url.startsWith('https://')) {
     console.warn(`[emoji] skip non-https remote pack: ${url}`)
     return null
   }
   const base = url.endsWith('/') ? url : url + '/'
+  const cacheKey = CACHE_PREFIX + base
+
+  // 1) Cache lookup. A fresh (unexpired) entry short-circuits the network.
+  const cached = readCache(store, cacheKey)
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return packFromCache(cached, base)
+  }
+
+  // 2) Network fetch (cache miss or expired).
   try {
     const res = await fetchImpl(base + 'info.json')
     if (!res.ok) {
       console.warn(`[emoji] manifest fetch failed (${res.status}): ${base}info.json`)
+      // Fall back to an (even expired) cached copy rather than dropping the pack.
+      if (cached) return packFromCache(cached, base)
       return null
     }
     const data: unknown = await res.json()
     if (typeof data !== 'object' || data === null || Array.isArray(data)) {
       console.warn(`[emoji] invalid manifest shape: ${base}info.json`)
+      if (cached) return packFromCache(cached, base)
       return null
     }
     const obj = data as Record<string, unknown>
@@ -95,6 +272,7 @@ export async function loadRemoteManifest(
     // store full filenames (incl. extension) directly in `items`.
     if (typeof name !== 'string' || !Array.isArray(items)) {
       console.warn(`[emoji] invalid manifest shape: ${base}info.json`)
+      if (cached) return packFromCache(cached, base)
       return null
     }
     // `type` optional: missing or non-string → '' (Valine shape, no extension).
@@ -104,7 +282,7 @@ export async function loadRemoteManifest(
     // `icon` optional: missing or non-string → '' (falls back to placeholder).
     const icon = typeof obj.icon === 'string' ? obj.icon : ''
     const keywords = items.filter((it): it is string => typeof it === 'string')
-    return {
+    const pack: EmojiPack = {
       name,
       icon,
       keywords,
@@ -114,8 +292,12 @@ export async function loadRemoteManifest(
       // join is base + prefix + kw (no extension appended).
       urlOf: (kw: string) => (type ? base + prefix + kw + '.' + type : base + prefix + kw),
     }
+    writeCache(store, cacheKey, { name, icon, prefix, type, keywords, ts: Date.now() })
+    return pack
   } catch (err) {
     console.warn(`[emoji] manifest load failed: ${base}info.json — ${(err as Error).message ?? err}`)
+    // Network/parse failure: serve the stale cache if we have one.
+    if (cached) return packFromCache(cached, base)
     return null
   }
 }
@@ -127,10 +309,11 @@ export async function loadRemoteManifest(
 export async function resolveEmojiConfig(
   entries: unknown[],
   fetchImpl?: typeof fetch,
+  store?: ManifestCacheStore,
 ): Promise<EmojiPack[]> {
   const { packs, remoteUrls } = parseInlineEmojiConfig(entries)
   const remotePacks = await Promise.all(
-    remoteUrls.map((url) => loadRemoteManifest(url, fetchImpl)),
+    remoteUrls.map((url) => loadRemoteManifest(url, fetchImpl, store)),
   )
   return [...packs, ...remotePacks.filter((p): p is EmojiPack => p !== null)]
 }
@@ -223,6 +406,18 @@ export function replaceEmojiTokens(
     parts.push({ type: 'text', text: text.slice(lastIndex) })
   }
   return parts
+}
+
+/**
+ * Pure predicate: is `url` an emoji image that the Service Worker should cache?
+ * True only when `url` is an https string starting with one of `prefixes`.
+ * Mirrors the matching rule implemented independently in static/sw.js (which
+ * cannot import this TS module).
+ */
+export function isEmojiImageUrl(prefixes: string[], url: string): boolean {
+  if (typeof url !== 'string' || !url.startsWith('https://')) return false
+  if (!Array.isArray(prefixes) || prefixes.length === 0) return false
+  return prefixes.some((p) => typeof p === 'string' && url.startsWith(p))
 }
 
 /** Fallback when config `emoji[]` is empty (client wiring happens in T6/T7). */

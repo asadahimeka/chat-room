@@ -34,6 +34,16 @@ export const app = registerWs(new Elysia(), roomState)
   .group('/room', (g) => g.use(roomRouter))
   .get('/favicon.ico', async () => resolveStatic('favicon.ico'))
   .get('/notify.mp3', async () => resolveStatic('notify.mp3'))
+  .get('/sw.js', async () => {
+    const file = Bun.file('./static/sw.js')
+    return new Response(file, {
+      headers: {
+        'content-type': 'application/javascript; charset=utf-8',
+        'service-worker-allowed': '/',
+        'cache-control': 'no-cache',
+      },
+    })
+  })
   .get('/static/*', async ({ params }) => resolveStatic(params['*']))
 
 setInterval(() => {

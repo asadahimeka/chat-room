@@ -13,6 +13,7 @@ import { linkify } from './linkify'
 import type { JoinedUser, MsgItem } from '../ws/protocol'
 import { renderMarkdown } from '../utils/markdown'
 import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
+import { readableColor } from '../utils/color'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
 
 export function formatTime(ts: number): string {
@@ -132,7 +133,7 @@ function el<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T
 }
 
-function init(): void {
+async function init(): Promise<void> {
   const roomData = parseRoomData(document.getElementById('room-data'))
   const roomId = roomData.roomId
   const title = roomData.title
@@ -162,6 +163,24 @@ function init(): void {
   let loading = false
   let finished = false
 
+  // Reads the active theme's --bg custom property (the surface chat messages
+  // sit on) so per-message colors can be made readable against it.
+  function currentThemeBg(): string {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+      if (v) return v
+    } catch {
+      // getComputedStyle unavailable — fall back to the light default
+    }
+    return '#f6f2fa'
+  }
+
+  // De-duplication guard for rendered chat messages. A reconnect re-fetches the
+  // record and re-receives WS echoes, which would otherwise double-render the
+  // same message. Capped at 500 entries with FIFO eviction to avoid leaks.
+  const renderedMsgKeys = new Set<string>()
+  const MAX_RENDERED_KEYS = 500
+
   const themeToggle = document.getElementById('theme-toggle') as HTMLButtonElement | null
   if (themeToggle) {
     themeToggle.addEventListener('click', () => {
@@ -172,6 +191,14 @@ function init(): void {
       } catch {
         // storage unavailable (private mode etc.) — theme still switches for this page
       }
+      // Recompute every per-message color against the new theme background so
+      // user-chosen nickname / message colors stay readable after a switch.
+      const bg = currentThemeBg()
+      msgList.querySelectorAll<HTMLElement>('[data-original-color]').forEach((el) => {
+        const orig = el.dataset.originalColor
+        if (!orig) return
+        el.style.color = readableColor(orig, bg, orig)
+      })
     })
   }
 
@@ -213,21 +240,55 @@ function init(): void {
   userPrefs.namecolor = sanitizeColor(userPrefs.namecolor, DEFAULT_NAME_COLOR)
   userPrefs.msgcolor = sanitizeColor(userPrefs.msgcolor, DEFAULT_MSG_COLOR)
 
-  // Emoji map starts empty (messages render fine before packs load); the async
-  // bootstrap fills it from the room-data config or the builtin fallback.
+  // Emoji packs are resolved before the first record fetch (Fix 4a) so the
+  // history renders with emoji already mapped. The map starts empty and is
+  // filled synchronously once the await below resolves.
   let emojiMap = new Map<string, string>()
   let emojiPacks: EmojiPack[] = []
   const emojiEntries = roomData.emoji && roomData.emoji.length ? roomData.emoji : BUILTIN_EMOJI_ENTRIES
-  resolveEmojiConfig(emojiEntries)
-    .then((packs) => {
-      emojiPacks = packs
-      emojiMap = buildEmojiMap(packs)
-      // Packs arrived after the panel was opened — refresh it in place.
-      if (!emojiPanel.hidden) renderEmojiPanel()
-    })
-    .catch(() => {
-      // Emoji loading is best-effort; plain text rendering still works.
-    })
+
+  // Register the Service Worker that cache-first serves emoji images. This is a
+  // pure optimization: any registration / messaging failure is silently ignored
+  // and emoji still load over the network.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        const prefixes = emojiEntries.filter(
+          (e): e is string => typeof e === 'string' && e.startsWith('https://'),
+        )
+        const send = (target: ServiceWorker | null): void => {
+          try {
+            target?.postMessage({ type: 'emoji-prefixes', prefixes })
+          } catch {
+            // messaging is best-effort
+          }
+        }
+        const active = reg.active ?? navigator.serviceWorker.controller
+        if (active) {
+          send(active)
+        } else {
+          // No active controller yet (first install) — send once it takes over.
+          navigator.serviceWorker.addEventListener(
+            'controllerchange',
+            () => send(navigator.serviceWorker.controller),
+            { once: true },
+          )
+        }
+      })
+      .catch(() => {
+        // SW registration is best-effort
+      })
+  }
+
+  try {
+    emojiPacks = await resolveEmojiConfig(emojiEntries)
+    emojiMap = buildEmojiMap(emojiPacks)
+    // Pre-warm the first pack's icon + first-screen images (silent on failure).
+    prewarmEmoji(emojiPacks)
+  } catch {
+    // Emoji loading is best-effort; plain text rendering still works.
+  }
 
   function setStatus(text: string, cls: string): void {
     const statusEl = header.querySelector('.status') as HTMLElement | null
@@ -254,6 +315,9 @@ function init(): void {
       name?: string
       uid?: string
       time?: string
+      /** Raw second-level timestamp used for de-duplication (more precise than
+       *  the minute-grained `time` display string). */
+      rawTs?: number
       namecolor?: string
       msgcolor?: string
       highlight?: boolean
@@ -264,8 +328,26 @@ function init(): void {
   ): void {
     if (item.type === 'msg' && item.uid && isBlocked(item.uid, blockList)) return
 
+    // De-duplicate chat messages. Reconnects re-fetch the record and re-receive
+    // WS echoes, which would otherwise render the same message twice. System
+    // messages (sys/init/online) are intentionally NOT de-duplicated. The key
+    // uses the raw second-level `rawTs` (not the minute-grained `time` string)
+    // so two identical messages sent in the same minute are NOT swallowed.
+    if (item.type === 'msg') {
+      const key = `${item.uid ?? ''}|${item.rawTs ?? ''}|${item.msg ?? ''}`
+      if (renderedMsgKeys.has(key)) return
+      renderedMsgKeys.add(key)
+      if (renderedMsgKeys.size > MAX_RENDERED_KEYS) {
+        const oldest = renderedMsgKeys.values().next().value
+        if (oldest !== undefined) renderedMsgKeys.delete(oldest)
+      }
+    }
+
     const scrollFlag =
       msgList.scrollTop + msgList.clientHeight >= msgList.scrollHeight - 2
+
+    // Active theme background, used to keep per-message colors readable.
+    const themeBg = currentThemeBg()
 
     let node: HTMLElement
     let containsLink = false
@@ -298,7 +380,11 @@ function init(): void {
 
       const name = document.createElement('span')
       name.className = 'name'
-      name.style.color = item.namecolor || '#117743'
+      // Keep the user's chosen color readable against the active theme bg;
+      // stash the original so a theme switch can recompute it.
+      const nameColorVal = item.namecolor || DEFAULT_NAME_COLOR
+      name.dataset.originalColor = nameColorVal
+      name.style.color = readableColor(nameColorVal, themeBg, DEFAULT_NAME_COLOR)
       name.textContent = item.name ?? ''
       nickname.appendChild(name)
 
@@ -316,7 +402,9 @@ function init(): void {
 
       const msgSpan = document.createElement('span')
       msgSpan.className = 'msg'
-      msgSpan.style.color = item.msgcolor || '#3d3d3d'
+      const msgColorVal = item.msgcolor || DEFAULT_MSG_COLOR
+      msgSpan.dataset.originalColor = msgColorVal
+      msgSpan.style.color = readableColor(msgColorVal, themeBg, DEFAULT_MSG_COLOR)
       containsLink = renderMarkdown(msgSpan, msg, emojiMap, uploadHost).containsLink
 
       if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
@@ -523,6 +611,7 @@ function init(): void {
             name: m.name,
             uid: m.uid,
             time: formatTime(m.ts),
+            rawTs: m.ts,
             msg: m.msg,
             namecolor: m.namecolor,
             msgcolor: m.msgcolor,
@@ -547,8 +636,10 @@ function init(): void {
       socket = null
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
       reconnectAttempts++
+      // Single reconnect path: fetchRecord() already opens the WebSocket in
+      // both its success and failure branches, so calling connect() here too
+      // would create a second socket. One timer → one fetchRecord → one socket.
       reconnectTimer = window.setTimeout(() => {
-        connect()
         fetchRecord()
       }, delay)
     }
@@ -578,6 +669,7 @@ function init(): void {
             name: m.name,
             uid: m.uid,
             time: formatTime(m.time),
+            rawTs: m.time,
             msg: m.msg,
             namecolor: m.namecolor,
             msgcolor: m.msgcolor,
@@ -612,6 +704,7 @@ function init(): void {
               name: m.name,
               uid: m.uid,
               time: formatTime(m.time),
+              rawTs: m.time,
               msg: m.msg,
               namecolor: m.namecolor,
               msgcolor: m.msgcolor,
@@ -961,6 +1054,32 @@ function init(): void {
   setStatus('get record...', 'connecting')
   fetchRecord()
   refreshUploadVisibility()
+}
+
+/**
+ * Pre-warms the first emoji pack's icon and first-screen images by assigning
+ * their URLs to `new Image()` (browser only). Failures are silent — this is a
+ * pure latency optimization and never affects rendering.
+ */
+function prewarmEmoji(packs: EmojiPack[]): void {
+  if (typeof Image === 'undefined') return
+  const pack = packs[0]
+  if (!pack) return
+  const urls = new Set<string>()
+  if (pack.icon) {
+    const u = pack.urlOf(pack.icon)
+    if (u.startsWith('https://')) urls.add(u)
+  }
+  // First ~30 keywords cover the panel's first screen without over-fetching.
+  for (const kw of pack.keywords.slice(0, 30)) {
+    const u = pack.urlOf(kw)
+    if (u.startsWith('https://')) urls.add(u)
+  }
+  for (const u of urls) {
+    const img = new Image()
+    img.referrerPolicy = 'no-referrer'
+    img.src = u
+  }
 }
 
 if (typeof document !== 'undefined') {

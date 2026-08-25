@@ -256,6 +256,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  max-width: 100vw;
   gap: 16px;
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
@@ -990,9 +991,15 @@ body {
   }
 }
 
+/* On phones, the connection status collapses to just the colored dot
+   (the text label is redundant with the dot's color state). */
+@media (max-width: 640px) {
+  .status .status-text { display: none; }
+}
+
 /* --------------------------------------------------------------------------
-   10. Hover micro-interactions — gated to precise pointers only
-   -------------------------------------------------------------------------- */
+    10. Hover micro-interactions — gated to precise pointers only
+    -------------------------------------------------------------------------- */
 @media (hover: hover) and (pointer: fine) {
   .user-item:hover {
     background: var(--bg-inset);
