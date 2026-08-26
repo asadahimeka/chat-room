@@ -56,8 +56,9 @@ describe('renderRoomPage room page', () => {
 
   it('references the local CSS and bundled client JS', () => {
     const html = renderRoomPage({ roomId: '@demo' })
-    expect(html).toContain('/static/css/room.css')
-    expect(html).toContain('/static/js/room.client.js')
+    // Accepts either the fixed dev name or a content-hashed build output.
+    expect(html).toMatch(/\/static\/css\/room[^\"]*\.css/)
+    expect(html).toMatch(/\/static\/js\/room\.client[^\"]*\.js/)
   })
 
   it('contains no CDN or external script references', () => {

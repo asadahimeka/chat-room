@@ -24,7 +24,15 @@ const uploadRouter = createUploadRouter({
 
 async function resolveStatic(rel: string): Promise<Response> {
   const file = Bun.file(`./static/${rel}`)
-  if (await file.exists()) return new Response(file)
+  if (await file.exists()) {
+    // Content-hashed assets (e.g. room.client-<hash>.js / room-<hash>.css) are
+    // immutable: cache them for a year so repeat visits never revalidate.
+    const headers: Record<string, string> = {}
+    if (/-[0-9a-f]{8}\.(js|css)$/.test(rel)) {
+      headers['cache-control'] = 'public, max-age=31536000, immutable'
+    }
+    return new Response(file, { headers })
+  }
   return new Response('Not Found', { status: 404 })
 }
 
@@ -47,7 +55,9 @@ export const app = registerWs(new Elysia(), roomState)
   .get('/static/*', async ({ params }) => resolveStatic(params['*']))
 
 setInterval(() => {
-  console.log('room list:', JSON.stringify(roomState.listAll()))
+  const list = roomState.listAll()
+  if (Object.keys(list).length === 0) return
+  console.log(`[${new Date().toLocaleString('zh')}] room list: ${JSON.stringify(list)}`)
 }, 30_000)
 
 if (import.meta.main) {

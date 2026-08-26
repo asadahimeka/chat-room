@@ -13,11 +13,14 @@
  * logic is repeated here on purpose.
  */
 
-const CACHE = 'emoji-img-v1'
+const CACHE = 'emoji-img-v2'
 const MAX_ENTRIES = 2000
 
 // Module-level list of emoji base URLs, populated via postMessage from the page.
 let prefixes = []
+
+// Module-level set of app-shell asset URLs (hashed JS/CSS) to also cache-first.
+let appShell = new Set()
 
 self.addEventListener('install', (event) => {
   try {
@@ -52,6 +55,10 @@ self.addEventListener('message', (event) => {
     const data = event.data
     if (data && data.type === 'emoji-prefixes' && Array.isArray(data.prefixes)) {
       prefixes = data.prefixes.filter((p) => typeof p === 'string')
+    } else if (data && data.type === 'app-shell' && Array.isArray(data.urls)) {
+      for (const u of data.urls) {
+        if (typeof u === 'string') appShell.add(u)
+      }
     }
   } catch {
     // ignore malformed messages
@@ -82,7 +89,9 @@ async function handle(request) {
   const cached = await cache.match(request)
   if (cached) return cached
   const response = await fetch(request)
-  if (response && response.ok) {
+  // Cross-origin <img> requests are no-cors → opaque responses have
+  // status 0 and ok === false, but they ARE cacheable. Accept both.
+  if (response && (response.ok || response.type === 'opaque')) {
     try {
       await cache.put(request, response.clone())
     } catch {
@@ -100,7 +109,14 @@ self.addEventListener('fetch', (event) => {
   try {
     if (req.method !== 'GET') return
     const url = req.url
-    if (typeof url !== 'string' || !url.startsWith('https://')) return
+    if (typeof url !== 'string') return
+    // App-shell assets (hashed JS/CSS) are cache-first too — first hit warms the
+    // cache via the normal network path, subsequent loads are served offline.
+    if (appShell.has(url)) {
+      event.respondWith(handle(req))
+      return
+    }
+    if (!url.startsWith('https://')) return
     if (req.destination !== 'image') return
     if (!Array.isArray(prefixes) || prefixes.length === 0) return
     if (!prefixes.some((p) => typeof p === 'string' && url.startsWith(p))) return

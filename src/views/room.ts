@@ -32,6 +32,8 @@
  */
 
 import { uploadOrigin } from '../config'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
 type RoomPageProps = {
   roomId: string
@@ -39,6 +41,35 @@ type RoomPageProps = {
   emoji?: unknown[]
   /** Overrides the derived upload storage origin; tests inject a fixed value. */
   uploadHost?: string
+}
+
+/**
+ * Picks the newest file in `dir` whose name matches `pattern`, by mtime.
+ * Returns null when the directory is missing, empty, or has no match — the
+ * caller then falls back to a fixed (dev) asset name. Pure w.r.t. the rest of
+ * the module so it can be unit-tested with a temp directory.
+ */
+export function pickLatestHashed(dir: string, pattern: RegExp): string | null {
+  try {
+    if (!existsSync(dir)) return null
+    let latest: string | null = null
+    let latestMtime = -1
+    for (const name of readdirSync(dir)) {
+      if (!pattern.test(name)) continue
+      try {
+        const mtime = statSync(join(dir, name)).mtimeMs
+        if (mtime > latestMtime) {
+          latestMtime = mtime
+          latest = name
+        }
+      } catch {
+        // skip entries we cannot stat
+      }
+    }
+    return latest
+  } catch {
+    return null
+  }
 }
 
 export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostProp }: RoomPageProps): string {
@@ -53,6 +84,13 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
     .replace(/&/g, '\\u0026')
+
+  // Resolve content-hashed app-shell assets when present; fall back to the
+  // fixed dev names otherwise (zero impact when no hash build has run).
+  const jsHashed = pickLatestHashed('./static/js', /^room\.client-[0-9a-f]{8}\.js$/)
+  const cssHashed = pickLatestHashed('./static/css', /^room-[0-9a-f]{8}\.css$/)
+  const jsSrc = `/static/js/${jsHashed}`
+  const cssHref = `/static/css/${cssHashed}`
 
   return (/** html */ `
     <!DOCTYPE html>
@@ -76,7 +114,7 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
           })()
         </script>
         <link rel="icon" href="/favicon.ico">
-        <link rel="stylesheet" href="/static/css/room.css">
+        <link rel="stylesheet" href="${cssHref}">
         <script type="application/json" id="room-data">${data}</script>
       </head>
       <body>
@@ -141,11 +179,26 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
               </div>
               <label>Avatar URL <input type="url" id="set-avatar" placeholder="https://..."></label>
               <label>Bubble <select id="set-bubble"><option value="default">Default</option><option value="flat">Flat</option><option value="card">Card</option><option value="minimal">Minimal</option></select></label>
+              <div class="cache-section">
+                <div class="cache-header">Cache Management</div>
+                <div class="cache-row">
+                  <span class="cache-label">Settings &amp; blocklist</span>
+                  <button class="cache-btn" id="clear-settings" type="button">Clear</button>
+                </div>
+                <div class="cache-row">
+                  <span class="cache-label">Chat history cache</span>
+                  <button class="cache-btn" id="clear-history" type="button">Clear</button>
+                </div>
+                <div class="cache-row">
+                  <span class="cache-label">Image cache</span>
+                  <button class="cache-btn" id="clear-images" type="button">Clear</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
         <div id="toast" class="toast"></div>
-        <script type="module" src="/static/js/room.client.js"></script>
+        <script type="module" src="${jsSrc}"></script>
       </body>
     </html>
   `).trim()

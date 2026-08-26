@@ -44,14 +44,28 @@ describe('app entry — routes + static + ws', () => {
     expect(res.headers.get('content-type')).toBe('audio/mpeg')
   })
 
-  test('GET /static/css/room.css returns 200 text/css', async () => {
-    const res = await fetch(`${baseUrl}/static/css/room.css`)
+  test('GET /static/css/room-*.css (or hashed build) returns 200 text/css', async () => {
+    // The page references either the fixed dev name or a content-hashed build
+    // output; resolve it from the rendered HTML so the test works in both modes.
+    const page = await fetch(`${baseUrl}/room/@demo`)
+    const html = await page.text()
+    const m = html.match(/<link[^>]+href="(\/static\/css\/room[^"]*)"[^>]*>/)
+    const cssUrl = m ? m[1] : '/static/css/room.css'
+    const res = await fetch(`${baseUrl}${cssUrl}`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/css')
   })
 
-  test('GET /static/js/room.client.js returns 200 text/javascript', async () => {
-    const res = await fetch(`${baseUrl}/static/js/room.client.js`)
+  test('GET /static/js/room.client.js (or hashed build) returns 200 text/javascript', async () => {
+    // The page references either the fixed dev name or a content-hashed build
+    // output; resolve it from the rendered HTML so the test works in both modes.
+    const page = await fetch(`${baseUrl}/room/@demo`)
+    const html = await page.text()
+    const m = html.match(
+      /<script type="module" src="(\/static\/js\/room\.client[^"]*)"><\/script>/,
+    )
+    const jsUrl = m ? m[1] : '/static/js/room.client.js'
+    const res = await fetch(`${baseUrl}${jsUrl}`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/javascript')
   })

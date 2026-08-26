@@ -1,7 +1,7 @@
 /* ==========================================================================
    chat-room — dual-theme design system
    --------------------------------------------------------------------------
-   Source of truth: static/css/room.css   (single source of truth)
+   Source of truth: src/style/room.css   (single source of truth)
 
    Theming is driven entirely by CSS custom properties. Light is the default
    in :root; the dark palette overrides the same tokens inside
@@ -810,7 +810,7 @@ body {
   top: calc(var(--header-h) + 16px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 80;
   padding: 9px 18px;
   border-radius: var(--radius-pill);
   background: var(--text);
@@ -1230,6 +1230,76 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+/* ── Cache management section ─────────────────────────────────────── */
+.cache-section {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.cache-header {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  gap: 12px;
+}
+
+.cache-row + .cache-row {
+  border-top: 1px solid var(--bg-inset);
+}
+
+.cache-label {
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.cache-btn {
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.cache-btn:hover {
+  background: var(--bg-inset);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.cache-btn.confirm {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.cache-btn.confirm:hover {
+  background: color-mix(in srgb, var(--danger) 85%, #000);
+}
+
+.cache-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .modal-body input[type="color"] {

@@ -14,6 +14,7 @@ import type { JoinedUser, MsgItem } from '../ws/protocol'
 import { renderMarkdown } from '../utils/markdown'
 import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
 import { readableColor } from '../utils/color'
+import { loadHistoryCache, saveHistoryCache, clearHistoryCache, type CachedMsg } from '../utils/history-cache'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
 
 export function formatTime(ts: number): string {
@@ -257,9 +258,26 @@ async function init(): Promise<void> {
         const prefixes = emojiEntries.filter(
           (e): e is string => typeof e === 'string' && e.startsWith('https://'),
         )
+        // Also cache-first serve uploaded images from the room's upload host.
+        if (typeof uploadHost === 'string' && uploadHost.startsWith('https://')) {
+          prefixes.push(uploadHost.endsWith('/') ? uploadHost : uploadHost + '/')
+        }
         const send = (target: ServiceWorker | null): void => {
           try {
             target?.postMessage({ type: 'emoji-prefixes', prefixes })
+            // Also let the SW cache-first serve the hashed app-shell assets.
+            const jsUrl = document
+              .querySelector('script[type="module"][src*="room.client-"]')
+              ?.getAttribute('src')
+            const cssUrl = document
+              .querySelector('link[rel="stylesheet"][href*="room-"]')
+              ?.getAttribute('href')
+            const shellUrls = [jsUrl, cssUrl]
+              .filter((u): u is string => !!u)
+              .map((u) => new URL(u, location.origin).href)
+            if (shellUrls.length > 0) {
+              target?.postMessage({ type: 'app-shell', urls: shellUrls })
+            }
           } catch {
             // messaging is best-effort
           }
@@ -285,9 +303,24 @@ async function init(): Promise<void> {
     emojiPacks = await resolveEmojiConfig(emojiEntries)
     emojiMap = buildEmojiMap(emojiPacks)
     // Pre-warm the first pack's icon + first-screen images (silent on failure).
-    prewarmEmoji(emojiPacks)
+    // prewarmEmoji(emojiPacks)
   } catch {
     // Emoji loading is best-effort; plain text rendering still works.
+  }
+
+  // Restore a cached history snapshot (stale-while-revalidate): paint it
+  // instantly, then fetchRecord() refreshes from the server. The existing
+  // de-dup guard ensures any overlap is not rendered twice.
+  try {
+    const cached = await loadHistoryCache(roomId)
+    if (cached.length > 0) {
+      for (const m of cached) {
+        appendMsg({ ...m, type: 'msg' }, 'after')
+      }
+      msgList.scrollTop = msgList.scrollHeight
+    }
+  } catch {
+    // Cache restore is best-effort.
   }
 
   function setStatus(text: string, cls: string): void {
@@ -677,7 +710,23 @@ async function init(): Promise<void> {
           })
         }
         // Initial load lands the reader on the newest message.
-        msgList.scrollTop = msgList.scrollHeight
+        requestAnimationFrame(() => {
+          msgList.scrollTop = msgList.scrollHeight
+        })
+        // Persist a snapshot for instant restore on the next visit
+        // (stale-while-revalidate). Fire-and-forget; failures are silent.
+        const snapshot: CachedMsg[] = data.map((m) => ({
+          type: 'msg',
+          name: m.name,
+          uid: m.uid,
+          time: formatTime(m.time),
+          rawTs: m.time,
+          msg: m.msg,
+          namecolor: m.namecolor,
+          msgcolor: m.msgcolor,
+          meta: m.meta ?? undefined,
+        }))
+        saveHistoryCache(roomId, snapshot).catch(() => {})
         connect()
       })
       .catch(() => {
@@ -859,6 +908,85 @@ async function init(): Promise<void> {
   })
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !settingsModal.hidden) closeSettings()
+  })
+
+  // ── Cache management buttons ─────────────────────────────────────────
+  const CONFIRM_RESET_MS = 4000
+
+  function setupCacheButton(
+    btn: HTMLButtonElement,
+    label: string,
+    action: () => Promise<void>,
+  ): void {
+    let timer: number | null = null
+    const reset = () => {
+      btn.classList.remove('confirm')
+      btn.textContent = 'Clear'
+      btn.disabled = false
+      if (timer !== null) {
+        window.clearTimeout(timer)
+        timer = null
+      }
+    }
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('confirm')) {
+        if (timer !== null) {
+          window.clearTimeout(timer)
+          timer = null
+        }
+        btn.disabled = true
+        btn.textContent = 'Clearing…'
+        try {
+          await action()
+          showToast(`${label} cleared`)
+        } catch {
+          showToast(`Failed to clear ${label.toLowerCase()}`)
+        }
+        reset()
+      } else {
+        btn.classList.add('confirm')
+        btn.textContent = 'Confirm?'
+        timer = window.setTimeout(reset, CONFIRM_RESET_MS)
+      }
+    })
+  }
+
+  const clearSettingsBtn = el<HTMLButtonElement>('clear-settings')
+  const clearHistoryBtn = el<HTMLButtonElement>('clear-history')
+  const clearImagesBtn = el<HTMLButtonElement>('clear-images')
+
+  setupCacheButton(clearSettingsBtn, 'Settings', async () => {
+    try {
+      localStorage.clear()
+    } catch {
+      // storage unavailable
+    }
+    // Expire every cookie except the identity pair (name + uid).
+    // Cookies were all set with path=/, so expiring with path=/ matches.
+    try {
+      const keep = new Set(['name', 'uid'])
+      for (const entry of document.cookie.split(';')) {
+        const key = entry.split('=')[0]?.trim()
+        if (!key || keep.has(key)) continue
+        document.cookie = `${key}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+      }
+    } catch {
+      // cookies unavailable
+    }
+  })
+
+  setupCacheButton(clearHistoryBtn, 'History', async () => {
+    await clearHistoryCache()
+  })
+
+  setupCacheButton(clearImagesBtn, 'Images', async () => {
+    if (!('caches' in window)) return
+    const keys = await caches.keys()
+    for (const key of keys) {
+      if (key.startsWith('emoji-img-')) {
+        await caches.delete(key)
+      }
+    }
   })
 
   // ── Emoji picker panel ─────────────────────────────────────────────────
