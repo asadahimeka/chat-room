@@ -47,12 +47,12 @@ $ cp config.example.yml config.yml
 聊天室 URL 形如：
 
 ```
-https://chat.getloli.com/room/@:name?title=the title whatever
+https://chat.nanoka.top/room/@:name?title=the title whatever
 ```
 
 使用你自己的房间名和标题，例如：
 
-[https://chat.getloli.com/room/@test?title=a simple title](https://chat.getloli.com/room/@test?title=a%20simple%20title)
+[https://chat.nanoka.top/room/@test?title=a simple title](https://chat.nanoka.top/room/@test?title=a%20simple%20title)
 
 ### HTTP API
 
@@ -69,7 +69,7 @@ https://chat.getloli.com/room/@:name?title=the title whatever
 
 借助 SVG `<foreignObject>` 的特性，我们可以让一个 SVG 元素包含一个标准的 HTML 页面。
 
-示例：[![SVG Charts](https://chat.getloli.com/room/@test/svg?width=750&height=360&limit=20&theme=light&fontSize=13&title=jad@github.com:%20%7E)](https://chat.getloli.com/room/@test)
+示例：[![SVG Charts](https://chat.nanoka.top/room/@test/svg?width=750&height=360&limit=20&theme=light&fontSize=13&title=jad@github.com:%20%7E)](https://chat.nanoka.top/room/@test)
 
 ### WebSocket 协议
 
