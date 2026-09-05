@@ -85,7 +85,8 @@ export function inIframe(): boolean {
   if (typeof window === 'undefined') return false
   try {
     return window.self !== window.top
-  } catch {
+  } catch (e) {
+    console.log(e)
     return true
   }
 }
@@ -123,7 +124,8 @@ export function parseRoomData(el: HTMLElement | null): {
           ? data.emojiManifestUrl
           : undefined,
     }
-  } catch {
+  } catch (e) {
+    console.log(e)
     return { roomId: '', title: '' }
   }
 }
@@ -179,8 +181,9 @@ async function init(): Promise<void> {
     try {
       const v = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
       if (v) return v
-    } catch {
+    } catch (e) {
       // getComputedStyle unavailable — fall back to the light default
+      console.log(e)
     }
     return '#f6f2fa'
   }
@@ -198,8 +201,9 @@ async function init(): Promise<void> {
       document.documentElement.dataset.theme = next
       try {
         localStorage.setItem('theme', next)
-      } catch {
+      } catch (e) {
         // storage unavailable (private mode etc.) — theme still switches for this page
+        console.log(e)
       }
       // Recompute every per-message color against the new theme background so
       // user-chosen nickname / message colors stay readable after a switch.
@@ -214,7 +218,8 @@ async function init(): Promise<void> {
 
   try {
     blockList = JSON.parse(localStorage.getItem('blockList') || '[]') || []
-  } catch {
+  } catch (e) {
+    console.log(e)
     blockList = []
   }
 
@@ -235,7 +240,8 @@ async function init(): Promise<void> {
     if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
       userPrefs = stored as typeof userPrefs
     }
-  } catch {
+  } catch (e) {
+    console.log(e)
     userPrefs = {}
   }
 
@@ -287,7 +293,8 @@ async function init(): Promise<void> {
             if (shellUrls.length > 0) {
               target?.postMessage({ type: 'app-shell', urls: shellUrls })
             }
-          } catch {
+          } catch (e) {
+            console.log(e)
             // messaging is best-effort
           }
         }
@@ -303,11 +310,13 @@ async function init(): Promise<void> {
           )
         }
       })
-      .catch(() => {
+      .catch((e) => {
         // SW registration is best-effort
+        console.log(e)
       })
   }
 
+  const emojiPanel = el<HTMLDivElement>('emoji-panel')
   // Non-blocking emoji config: prefer the single same-origin vendored
   // manifest (1 request, built via `bun run vendor-emoji`), then re-render all
   // messages with emoji mapping. Messages render as plain text until either
@@ -324,21 +333,23 @@ async function init(): Promise<void> {
             emojiMap = buildEmojiMap(packs)
             rerenderEmojis()
             // Refresh the emoji panel if it's currently visible
-            if (!emojiPanel.hidden) renderEmojiPanel()
+            !emojiPanel.hidden && renderEmojiPanel()
             // Let the SW cache-first serve the manifest next time (best-effort).
             try {
               navigator.serviceWorker?.controller?.postMessage({
                 type: 'emoji-manifest',
                 urls: [new URL(manifestUrl, location.origin).href],
               })
-            } catch {
+            } catch (e) {
               // messaging is best-effort
+              console.log(e)
             }
             return
           }
         }
-      } catch {
+      } catch (e) {
         // fall through to direct fetch
+        console.log(e)
       }
     }
     // Fallback: manifest missing/corrupt (fresh clone, vendor never run) —
@@ -350,8 +361,9 @@ async function init(): Promise<void> {
       rerenderEmojis()
       // Refresh the emoji panel if it's currently visible
       if (!emojiPanel.hidden) renderEmojiPanel()
-    } catch {
+    } catch(e) {
       // Emoji loading is best-effort; plain text rendering still works.
+      console.log(e)
     }
   }
   loadEmoji()
@@ -365,10 +377,13 @@ async function init(): Promise<void> {
       for (const m of cached) {
         appendMsg({ ...m, type: 'msg' }, 'after')
       }
-      msgList.scrollTop = msgList.scrollHeight
+      setTimeout(() => {
+        msgList.scrollTop = msgList.scrollHeight
+      }, 100)
     }
-  } catch {
+  } catch (e) {
     // Cache restore is best-effort.
+    console.log(e)
   }
 
   function setStatus(text: string, cls: string): void {
@@ -506,7 +521,11 @@ async function init(): Promise<void> {
       msgList.appendChild(node)
       // Own messages always land at the bottom; otherwise only scroll when the
       // reader was already pinned there (so reading history isn't yanked down).
-      if (scrollFlag || forceScroll) msgList.scrollTop = msgList.scrollHeight
+      if (scrollFlag || forceScroll) {
+        setTimeout(() => {
+          msgList.scrollTop = msgList.scrollHeight
+        }, 100)
+      }
     }
 
     // Group consecutive messages from the same user (avatar/meta hidden via .threaded)
@@ -533,7 +552,6 @@ async function init(): Promise<void> {
    * .msg spans inside .message nodes; system messages are left as-is.
    */
   function rerenderEmojis(): void {
-    const bg = currentThemeBg()
     for (const msgEl of msgList.querySelectorAll<HTMLElement>('.message .msg')) {
       const raw = msgEl.dataset.raw
       if (raw === undefined) continue // sys messages or stale DOM — skip
@@ -663,7 +681,9 @@ async function init(): Promise<void> {
     autoGrow()
     // Fallback: make sure the composer's own send lands the view at the bottom
     // even before the WS echo round-trips back (the echo also force-scrolls).
-    msgList.scrollTop = msgList.scrollHeight
+    setTimeout(() => {
+      msgList.scrollTop = msgList.scrollHeight
+    }, 100)
   }
 
   function connect(): void {
@@ -683,7 +703,8 @@ async function init(): Promise<void> {
       let payload: { type: string; data: unknown }
       try {
         payload = JSON.parse(event.data)
-      } catch {
+      } catch (e) {
+        console.log(e)
         return
       }
 
@@ -794,9 +815,9 @@ async function init(): Promise<void> {
           })
         }
         // Initial load lands the reader on the newest message.
-        requestAnimationFrame(() => {
+        setTimeout(() => {
           msgList.scrollTop = msgList.scrollHeight
-        })
+        }, 100)
         // Persist a snapshot for instant restore on the next visit
         // (stale-while-revalidate). Fire-and-forget; failures are silent.
         const snapshot: CachedMsg[] = data.map((m) => ({
@@ -813,7 +834,8 @@ async function init(): Promise<void> {
         saveHistoryCache(roomId, snapshot).catch(() => {})
         connect()
       })
-      .catch(() => {
+      .catch((e) => {
+        console.log(e)
         connect()
       })
   }
@@ -846,7 +868,9 @@ async function init(): Promise<void> {
             'before',
           )
         }
-        msgList.scrollTop = msgList.scrollHeight - scrollHeight
+        setTimeout(() => {
+          msgList.scrollTop = msgList.scrollHeight - scrollHeight
+        }, 100)
         offset += limit
       })
       .finally(() => {
@@ -936,8 +960,9 @@ async function init(): Promise<void> {
   function persistPrefs(): void {
     try {
       localStorage.setItem('settings', JSON.stringify(userPrefs))
-    } catch {
+    } catch (e) {
       // storage unavailable — prefs still apply for this page
+      console.log(e)
     }
   }
 
@@ -1023,7 +1048,8 @@ async function init(): Promise<void> {
         try {
           await action()
           showToast(`${label} cleared`)
-        } catch {
+        } catch (e) {
+          console.log(e)
           showToast(`Failed to clear ${label.toLowerCase()}`)
         }
         reset()
@@ -1042,8 +1068,9 @@ async function init(): Promise<void> {
   setupCacheButton(clearSettingsBtn, 'Settings', async () => {
     try {
       localStorage.clear()
-    } catch {
+    } catch (e) {
       // storage unavailable
+      console.log(e)
     }
     // Expire every cookie except the identity pair (name + uid).
     // Cookies were all set with path=/, so expiring with path=/ matches.
@@ -1054,8 +1081,9 @@ async function init(): Promise<void> {
         if (!key || keep.has(key)) continue
         document.cookie = `${key}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`
       }
-    } catch {
+    } catch (e) {
       // cookies unavailable
+      console.log(e)
     }
   })
 
@@ -1075,7 +1103,6 @@ async function init(): Promise<void> {
 
   // ── Emoji picker panel ─────────────────────────────────────────────────
   const emojiBtn = el<HTMLButtonElement>('emoji-btn')
-  const emojiPanel = el<HTMLDivElement>('emoji-panel')
   // Index of the currently displayed pack; defaults to the first available.
   let emojiPackIndex = 0
 
@@ -1372,7 +1399,8 @@ async function init(): Promise<void> {
           showToast(uploadErrorMsg(res.status))
         }
       })
-      .catch(() => {
+      .catch((e) => {
+        console.log(e)
         showToast(uploadErrorMsg(0))
       })
       .finally(() => {
