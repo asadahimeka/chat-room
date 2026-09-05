@@ -299,14 +299,20 @@ async function init(): Promise<void> {
       })
   }
 
-  try {
-    emojiPacks = await resolveEmojiConfig(emojiEntries)
-    emojiMap = buildEmojiMap(emojiPacks)
-    // Pre-warm the first pack's icon + first-screen images (silent on failure).
-    // prewarmEmoji(emojiPacks)
-  } catch {
-    // Emoji loading is best-effort; plain text rendering still works.
-  }
+  // Non-blocking emoji config: load in background, then re-render all messages
+  // with emoji mapping. Messages render as plain text until the config resolves.
+  resolveEmojiConfig(emojiEntries)
+    .then((packs) => {
+      emojiPacks = packs
+      emojiMap = buildEmojiMap(packs)
+      prewarmEmoji(packs)
+      rerenderEmojis()
+      // Refresh the emoji panel if it's currently visible
+      if (!emojiPanel.hidden) renderEmojiPanel()
+    })
+    .catch(() => {
+      // Emoji loading is best-effort; plain text rendering still works.
+    })
 
   // Restore a cached history snapshot (stale-while-revalidate): paint it
   // instantly, then fetchRecord() refreshes from the server. The existing
@@ -438,7 +444,10 @@ async function init(): Promise<void> {
       const msgColorVal = item.msgcolor || DEFAULT_MSG_COLOR
       msgSpan.dataset.originalColor = msgColorVal
       msgSpan.style.color = readableColor(msgColorVal, themeBg, DEFAULT_MSG_COLOR)
+      // Store raw text for non-blocking emoji rerender
+      msgSpan.dataset.raw = msg
       containsLink = renderMarkdown(msgSpan, msg, emojiMap, uploadHost).containsLink
+      msgSpan.dataset.hasLink = String(containsLink)
 
       if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
 
@@ -473,6 +482,39 @@ async function init(): Promise<void> {
     if (item.type === 'sys' || !containsLink) {
       const msgEl = node.querySelector('.msg')
       if (msgEl) linkify(msgEl as HTMLElement)
+    }
+  }
+
+  /**
+   * Re-renders all chat messages with the newly loaded emoji mapping.
+   * Called once the non-blocking emoji config resolves. Only touches
+   * .msg spans inside .message nodes; system messages are left as-is.
+   */
+  function rerenderEmojis(): void {
+    const bg = currentThemeBg()
+    for (const msgEl of msgList.querySelectorAll<HTMLElement>('.message .msg')) {
+      const raw = msgEl.dataset.raw
+      if (raw === undefined) continue // sys messages or stale DOM — skip
+
+      // Clear existing content (safe: textContent = '' removes children)
+      msgEl.textContent = ''
+
+      // Re-render markdown with the loaded emoji map
+      const { containsLink } = renderMarkdown(msgEl, raw, emojiMap, uploadHost)
+
+      // Update dataset.hasLink for subsequent linkify decisions
+      msgEl.dataset.hasLink = String(containsLink)
+
+      // Re-run linkify if the message had no markdown links
+      if (!containsLink) {
+        linkify(msgEl)
+      }
+
+      // Update bubble emoji-only class
+      const bubble = msgEl.closest('.bubble') as HTMLElement | null
+      if (bubble) {
+        bubble.classList.toggle('emoji-only', isEmojiOnlyMessage(raw, emojiMap))
+      }
     }
   }
 
