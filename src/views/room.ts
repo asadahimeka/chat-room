@@ -123,6 +123,7 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
         </script>
         <link rel="icon" href="/favicon.ico">
         <link rel="stylesheet" href="${cssHref}">
+        <link rel="stylesheet" href="/static/css/fancybox.min.css">
         <script type="application/json" id="room-data">${data}</script>
       </head>
       <body>
@@ -206,6 +207,7 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
           </div>
         </div>
         <div id="toast" class="toast"></div>
+        <script src="/static/js/fancybox.umd.min.js"></script>
         <script type="module" src="${jsSrc}"></script>
       </body>
     </html>

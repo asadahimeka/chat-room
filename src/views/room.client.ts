@@ -281,14 +281,14 @@ async function init(): Promise<void> {
           try {
             target?.postMessage({ type: 'emoji-prefixes', prefixes })
             // Also let the SW cache-first serve the hashed app-shell assets.
-            const jsUrl = document
-              .querySelector('script[type="module"][src*="room.client-"]')
-              ?.getAttribute('src')
-            const cssUrl = document
-              .querySelector('link[rel="stylesheet"][href*="room-"]')
-              ?.getAttribute('href')
-            const shellUrls = [jsUrl, cssUrl]
-              .filter((u): u is string => !!u)
+            const jsUrl = [...document.querySelectorAll('script[src]')]
+              .filter(Boolean)
+              .map(e => e.getAttribute('src'))
+            const cssUrl = [...document.querySelectorAll('link[rel="stylesheet"]')]
+              .filter(Boolean)
+              .map(e => e.getAttribute('href'))
+            const shellUrls = [...jsUrl, ...cssUrl]
+              .filter((u): u is string => Boolean(u))
               .map((u) => new URL(u, location.origin).href)
             if (shellUrls.length > 0) {
               target?.postMessage({ type: 'app-shell', urls: shellUrls })
@@ -1412,6 +1412,11 @@ async function init(): Promise<void> {
   setStatus('get record...', 'connecting')
   fetchRecord()
   refreshUploadVisibility()
+
+  const Fancybox = (window as any).Fancybox
+  if (Fancybox) {
+    Fancybox.bind('.message .msg .md-img')
+  }
 }
 
 if (typeof document !== 'undefined') {
