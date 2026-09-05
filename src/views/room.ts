@@ -41,6 +41,8 @@ type RoomPageProps = {
   emoji?: unknown[]
   /** Overrides the derived upload storage origin; tests inject a fixed value. */
   uploadHost?: string
+  /** Vendored manifest URL (resolved from ./static at render time, not a prop). */
+  emojiManifestUrl?: string
 }
 
 /**
@@ -80,6 +82,12 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
   // referrer policy to same-host images. Empty when not configured.
   const uploadHost = uploadHostProp ?? uploadOrigin()
   if (uploadHost) dataObj.uploadHost = uploadHost
+  // Vendored emoji manifest (gitignored, built via `bun run vendor-emoji`).
+  // Missing (fresh clone / vendor never run) → no field → client falls back
+  // to fetching the remote info.json files directly. Must run BEFORE `data`
+  // is serialized below.
+  const emojiManifest = pickLatestHashed('./static', /^emoji-manifest-[0-9a-f]{8}\.json$/)
+  if (emojiManifest) dataObj.emojiManifestUrl = `/static/${emojiManifest}`
   const data = JSON.stringify(dataObj)
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')

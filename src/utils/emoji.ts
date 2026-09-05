@@ -422,3 +422,52 @@ export function isEmojiImageUrl(prefixes: string[], url: string): boolean {
 
 /** Fallback when config `emoji[]` is empty (client wiring happens in T6/T7). */
 export const BUILTIN_EMOJI_ENTRIES: unknown[] = ['https://npm.elemecdn.com/@waline/emojis@1.2.0/weibo/']
+
+export interface ManifestPackEntry {
+  name: string
+  base: string
+  icon: string
+  prefix: string
+  type: string
+  keywords: string[]
+}
+
+export interface EmojiManifest {
+  v: 1
+  ts: number
+  packs: ManifestPackEntry[]
+}
+
+/**
+ * Rebuilds EmojiPacks from a vendored manifest JSON (see
+ * scripts/vendor-emoji.ts). DATA ONLY: entries failing the shape check are
+ * skipped silently; non-https bases are dropped. The urlOf join rule mirrors
+ * loadRemoteManifest so vendored and live packs render identically.
+ */
+export function packsFromManifest(m: unknown): EmojiPack[] {
+  if (typeof m !== 'object' || m === null || Array.isArray(m)) return []
+  const packs = (m as { packs?: unknown }).packs
+  if (!Array.isArray(packs)) return []
+  const out: EmojiPack[] = []
+  for (const p of packs) {
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) continue
+    const o = p as Record<string, unknown>
+    if (typeof o.name !== 'string' || typeof o.base !== 'string' || !Array.isArray(o.keywords)) {
+      continue
+    }
+    if (!o.base.startsWith('https://')) continue
+    const base = o.base.endsWith('/') ? o.base : o.base + '/'
+    const type = typeof o.type === 'string' ? o.type : ''
+    const prefix = typeof o.prefix === 'string' ? o.prefix : ''
+    const icon = typeof o.icon === 'string' ? o.icon : ''
+    const keywords = (o.keywords as unknown[]).filter((k): k is string => typeof k === 'string')
+    out.push({
+      name: o.name,
+      icon,
+      keywords,
+      prefix,
+      urlOf: (kw: string) => (type ? base + prefix + kw + '.' + type : base + prefix + kw),
+    })
+  }
+  return out
+}

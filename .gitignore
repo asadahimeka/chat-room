@@ -30,6 +30,9 @@ yarn.lock*
 /static/js/room.client-*.js
 /static/css/room-*.css
 
+# vendored emoji manifest (generated from local config.yml via `bun run vendor-emoji`, not committed)
+/static/emoji-manifest-*.json
+
 # bun lockfile
 bun.lock
 

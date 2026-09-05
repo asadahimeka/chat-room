@@ -42,6 +42,17 @@ $ cp config.example.yml config.yml
 
 部分配置也可用环境变量覆盖：`PORT`、`DB_PATH`、`TRUST_CLOUDFLARE`。
 
+### 表情包聚合（emoji-manifest）
+
+`emoji` 字段变更后需手动执行一次聚合（构建不会自动跑，部署时需在服务器上跑一次）：
+
+```shell
+$ bun run vendor-emoji
+```
+
+产物为 `static/emoji-manifest-<hash>.json`（已 gitignore，不入库，页面通过该单文件加载全部表情包定义）。
+vendor 失败时旧文件保留；无文件时（fresh clone）页面回退为直连远端 `info.json`。
+
 ## 使用
 
 聊天室 URL 形如：

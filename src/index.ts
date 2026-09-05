@@ -25,10 +25,11 @@ const uploadRouter = createUploadRouter({
 async function resolveStatic(rel: string): Promise<Response> {
   const file = Bun.file(`./static/${rel}`)
   if (await file.exists()) {
-    // Content-hashed assets (e.g. room.client-<hash>.js / room-<hash>.css) are
-    // immutable: cache them for a year so repeat visits never revalidate.
+    // Content-hashed assets (e.g. room.client-<hash>.js / room-<hash>.css /
+    // emoji-manifest-<hash>.json) are immutable: cache them for a year so
+    // repeat visits never revalidate.
     const headers: Record<string, string> = {}
-    if (/-[0-9a-f]{8}\.(js|css)$/.test(rel)) {
+    if (/-[0-9a-f]{8}\.(js|css|json)$/.test(rel)) {
       headers['cache-control'] = 'public, max-age=31536000, immutable'
     }
     return new Response(file, { headers })

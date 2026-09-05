@@ -12,7 +12,7 @@ import { Notify } from './notify'
 import { linkify } from './linkify'
 import type { JoinedUser, MsgItem } from '../ws/protocol'
 import { renderMarkdown } from '../utils/markdown'
-import { resolveEmojiConfig, buildEmojiMap, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
+import { resolveEmojiConfig, buildEmojiMap, packsFromManifest, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
 import { readableColor } from '../utils/color'
 import { loadHistoryCache, saveHistoryCache, clearHistoryCache, type CachedMsg } from '../utils/history-cache'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
@@ -99,6 +99,7 @@ export function parseRoomData(el: HTMLElement | null): {
   title: string
   emoji?: unknown[]
   uploadHost?: string
+  emojiManifestUrl?: string
 } {
   if (!el || !el.textContent) return { roomId: '', title: '' }
   try {
@@ -107,12 +108,20 @@ export function parseRoomData(el: HTMLElement | null): {
       title?: string
       emoji?: unknown
       uploadHost?: string
+      emojiManifestUrl?: unknown
     }
     return {
       roomId: data.roomId ?? '',
       title: data.title ?? '',
       emoji: Array.isArray(data.emoji) ? data.emoji : undefined,
       uploadHost: typeof data.uploadHost === 'string' ? data.uploadHost : undefined,
+      // Only same-origin vendored manifests are trusted (built via
+      // `bun run vendor-emoji`); anything else falls back to direct fetch.
+      emojiManifestUrl:
+        typeof data.emojiManifestUrl === 'string' &&
+        data.emojiManifestUrl.startsWith('/static/emoji-manifest-')
+          ? data.emojiManifestUrl
+          : undefined,
     }
   } catch {
     return { roomId: '', title: '' }
@@ -299,20 +308,55 @@ async function init(): Promise<void> {
       })
   }
 
-  // Non-blocking emoji config: load in background, then re-render all messages
-  // with emoji mapping. Messages render as plain text until the config resolves.
-  resolveEmojiConfig(emojiEntries)
-    .then((packs) => {
+  // Non-blocking emoji config: prefer the single same-origin vendored
+  // manifest (1 request, built via `bun run vendor-emoji`), then re-render all
+  // messages with emoji mapping. Messages render as plain text until either
+  // path resolves. No lazy loading: the full pack list is mapped at once.
+  async function loadEmoji(): Promise<void> {
+    const manifestUrl = roomData.emojiManifestUrl
+    if (manifestUrl) {
+      try {
+        const res = await fetch(manifestUrl, { credentials: 'same-origin' })
+        if (res.ok) {
+          const packs = packsFromManifest(await res.json())
+          if (packs.length > 0) {
+            emojiPacks = packs
+            emojiMap = buildEmojiMap(packs)
+            prewarmEmoji(packs)
+            rerenderEmojis()
+            // Refresh the emoji panel if it's currently visible
+            if (!emojiPanel.hidden) renderEmojiPanel()
+            // Let the SW cache-first serve the manifest next time (best-effort).
+            try {
+              navigator.serviceWorker?.controller?.postMessage({
+                type: 'emoji-manifest',
+                urls: [new URL(manifestUrl, location.origin).href],
+              })
+            } catch {
+              // messaging is best-effort
+            }
+            return
+          }
+        }
+      } catch {
+        // fall through to direct fetch
+      }
+    }
+    // Fallback: manifest missing/corrupt (fresh clone, vendor never run) —
+    // fetch the remote info.json files directly as before.
+    try {
+      const packs = await resolveEmojiConfig(emojiEntries)
       emojiPacks = packs
       emojiMap = buildEmojiMap(packs)
       prewarmEmoji(packs)
       rerenderEmojis()
       // Refresh the emoji panel if it's currently visible
       if (!emojiPanel.hidden) renderEmojiPanel()
-    })
-    .catch(() => {
+    } catch {
       // Emoji loading is best-effort; plain text rendering still works.
-    })
+    }
+  }
+  loadEmoji()
 
   // Restore a cached history snapshot (stale-while-revalidate): paint it
   // instantly, then fetchRecord() refreshes from the server. The existing
