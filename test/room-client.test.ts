@@ -305,7 +305,7 @@ describe('serializeOutgoingMeta', () => {
 
 describe('buildAvatarEl', () => {
   it('builds an img for a safe https avatar URL', () => {
-    const el = buildAvatarEl({ avatar: 'https://x/a.png' }, 'A', '#c00') as HTMLImageElement
+    const el = buildAvatarEl({ avatar: 'https://x/a.png' }, 'A') as HTMLImageElement
     expect(el.tagName).toBe('IMG')
     expect(el.className).toBe('avatar-img')
     expect(el.src).toBe('https://x/a.png')
@@ -315,25 +315,49 @@ describe('buildAvatarEl', () => {
   })
 
   it('builds an img for a data:image avatar URL', () => {
-    const el = buildAvatarEl({ avatar: 'data:image/png;base64,xxx' }, 'A', '#c00') as HTMLImageElement
+    const el = buildAvatarEl({ avatar: 'data:image/png;base64,xxx' }, 'A') as HTMLImageElement
     expect(el.tagName).toBe('IMG')
     expect(el.src).toBe('data:image/png;base64,xxx')
   })
 
   it('falls back to a monogram span for a javascript: avatar', () => {
-    const el = buildAvatarEl({ avatar: 'javascript:alert(1)' }, 'A', '#c00')
+    const el = buildAvatarEl({ avatar: 'javascript:alert(1)' }, 'A')
     expect(el.tagName).toBe('SPAN')
     expect(el.className).toBe('avatar')
-    expect(el.style.background).toBe('#c00')
+    expect(el.style.background).toContain('linear-gradient')
     expect(el.textContent).toBe('A')
   })
 
   it('builds a monogram span for null meta', () => {
-    const el = buildAvatarEl(null, 'bob', '#117743')
+    const el = buildAvatarEl(null, 'bob')
     expect(el.tagName).toBe('SPAN')
     expect(el.className).toBe('avatar')
-    expect(el.style.background).toBe('#117743')
+    expect(el.style.background).toContain('linear-gradient')
     expect(el.textContent).toBe('B')
+  })
+
+  // ── New tests for updated monogram rules ────────────────────────────
+  it('system name user_xxxxx → strip prefix, uppercase first char of slug', () => {
+    const el = buildAvatarEl(null, 'user_abc12')
+    expect(el.textContent).toBe('A')
+  })
+
+  it('empty name → empty string (no letter)', () => {
+    const el = buildAvatarEl(null, '')
+    expect(el.textContent).toBe('')
+  })
+
+  it('same uid → same gradient colors', () => {
+    const el1 = buildAvatarEl(null, 'alice', 'u42')
+    const el2 = buildAvatarEl(null, 'bob', 'u42')
+    expect(el1.style.background).toBe(el2.style.background)
+  })
+
+  it('different uid → different gradient colors (with high probability)', () => {
+    const el1 = buildAvatarEl(null, 'alice', 'u1')
+    const el2 = buildAvatarEl(null, 'alice', 'u2')
+    // Hash-based colors should differ for different inputs
+    expect(el1.style.background).not.toBe(el2.style.background)
   })
 })
 

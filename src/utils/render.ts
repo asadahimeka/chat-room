@@ -9,6 +9,31 @@
 const AVATAR_URL_RE = /^(https:\/\/|data:image\/)/
 
 /**
+ * Simple deterministic hash → two hue values (0–360) for the gradient.
+ * Uses the djb2 algorithm on a UTF-8–safe string.
+ */
+function hashToHues(input: string): [number, number] {
+  let h1 = 5381
+  let h2 = 0x1337
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i)
+    h1 = ((h1 << 5) + h1 + c) >>> 0
+    h2 = ((h2 << 7) ^ h2 + c) >>> 0
+  }
+  // Offset the second hue by 120–180° for contrast
+  return [h1 % 360, (h2 % 160) + 120]
+}
+
+/**
+ * Builds the gradient background for a monogram avatar.
+ * The two hues come from a deterministic hash of the uid (preferred) or name.
+ */
+function gradientBg(id: string): string {
+  const [h1, h2] = hashToHues(id)
+  return `linear-gradient(135deg, hsl(${h1},55%,52%), hsl(${h2},50%,48%))`
+}
+
+/**
  * Applies validated meta fields as CSS classes on the bubble element.
  * Unknown values are ignored; null meta is a no-op.
  *
@@ -37,13 +62,18 @@ export function applyMetaClasses(el: HTMLElement, meta: Record<string, unknown> 
  * When meta.avatar is a safe https/data:image URL → an `<img class="avatar-img">`
  * with lazy loading + no-referrer; on load error it falls back to the monogram
  * (built by this same function with no avatar). Otherwise → the classic
- * monogram `<span class="avatar">` with the fallback background color and the
- * uppercase first character of fallbackChar.
+ * monogram `<span class="avatar">` with a gradient background derived from
+ * the uid or name hash.
+ *
+ * Monogram letter rules:
+ *  - empty / no name → empty string (blank avatar)
+ *  - name strictly matches /^user_[a-z0-9]{5}$/ → strip prefix, uppercase first char
+ *  - all other names → uppercase first char
  */
 export function buildAvatarEl(
   meta: Record<string, unknown> | null,
-  fallbackChar: string,
-  fallbackColor: string,
+  name: string,
+  uid?: string,
 ): HTMLElement {
   const avatarUrl = meta && typeof meta.avatar === 'string' ? meta.avatar : ''
   if (AVATAR_URL_RE.test(avatarUrl)) {
@@ -53,16 +83,28 @@ export function buildAvatarEl(
     img.alt = ''
     img.loading = 'lazy'
     img.referrerPolicy = 'no-referrer'
-    const monogram = buildAvatarEl(null, fallbackChar, fallbackColor)
+    const monogram = buildAvatarEl(null, name, uid)
     img.onerror = () => {
       img.replaceWith(monogram)
     }
     return img
   }
+
+  // Determine the monogram letter
+  let letter = ''
+  if (name) {
+    if (/^user_[a-z0-9]{5}$/.test(name)) {
+      // Strip "user_" prefix → take first char of the remaining 5-char slug
+      letter = name.slice(5, 6).toUpperCase()
+    } else {
+      letter = name.charAt(0).toUpperCase()
+    }
+  }
+
   const monogram = document.createElement('span')
   monogram.className = 'avatar'
-  monogram.style.background = fallbackColor
-  monogram.textContent = fallbackChar.charAt(0).toUpperCase()
+  monogram.style.background = gradientBg(uid ?? name)
+  monogram.textContent = letter
   return monogram
 }
 

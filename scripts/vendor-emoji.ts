@@ -67,7 +67,10 @@ export async function vendorEmojiManifest(
   }
   const manifest = { v: 1, ts: Date.now(), packs }
   const body = JSON.stringify(manifest)
-  const hash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+  // Hash only the packs array (stable content) so the filename stays the same
+  // across runs as long as pack data hasn't changed — preventing 404 storms
+  // when old filenames get pruned.
+  const hash = createHash('sha256').update(JSON.stringify(packs)).digest('hex').slice(0, 8)
   const name = `emoji-manifest-${hash}.json`
   await writeFile(`${outDir}/${name}`, body)
   // Prune only after the new file landed successfully.

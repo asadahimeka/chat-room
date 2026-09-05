@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  CACHE_MAX,
   CACHE_PREFIX,
   CACHE_TTL,
   loadRemoteManifest,
@@ -136,15 +137,15 @@ describe('loadRemoteManifest — failure fallback', () => {
   })
 })
 
-describe('loadRemoteManifest — cache write cap (~50 keys)', () => {
-  test('writing more than 50 distinct packs evicts the oldest', async () => {
+describe('loadRemoteManifest — cache write cap (~120 keys)', () => {
+  test('writing more than CACHE_MAX distinct packs evicts the oldest', async () => {
     const store = memStore()
     const fetchImpl = makeFetch(() => new Response(JSON.stringify(VALID_MANIFEST), { status: 200 }))
-    // 51 distinct remote packs → 51 cache writes.
-    for (let i = 0; i < 51; i++) {
+    // CACHE_MAX+1 distinct remote packs → one eviction.
+    for (let i = 0; i < CACHE_MAX + 1; i++) {
       await loadRemoteManifest(`https://cdn.example.com/p${i}/`, fetchImpl, store)
     }
     const keys = store.keys!().filter((k) => k.startsWith(CACHE_PREFIX))
-    expect(keys.length).toBe(50)
+    expect(keys.length).toBe(CACHE_MAX)
   })
 })

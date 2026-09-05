@@ -322,7 +322,6 @@ async function init(): Promise<void> {
           if (packs.length > 0) {
             emojiPacks = packs
             emojiMap = buildEmojiMap(packs)
-            prewarmEmoji(packs)
             rerenderEmojis()
             // Refresh the emoji panel if it's currently visible
             if (!emojiPanel.hidden) renderEmojiPanel()
@@ -348,7 +347,6 @@ async function init(): Promise<void> {
       const packs = await resolveEmojiConfig(emojiEntries)
       emojiPacks = packs
       emojiMap = buildEmojiMap(packs)
-      prewarmEmoji(packs)
       rerenderEmojis()
       // Refresh the emoji panel if it's currently visible
       if (!emojiPanel.hidden) renderEmojiPanel()
@@ -451,7 +449,7 @@ async function init(): Promise<void> {
       node.dataset.uid = item.uid
       if (userInfo && item.uid === userInfo.uid) node.classList.add('self')
 
-      const avatar = buildAvatarEl(safeParseMeta(item.meta), item.name ?? '?', item.namecolor || '#117743')
+      const avatar = buildAvatarEl(safeParseMeta(item.meta), item.name ?? '?', item.uid)
 
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
@@ -1099,7 +1097,6 @@ async function init(): Promise<void> {
         const img = document.createElement('img')
         img.src = url
         img.alt = `:${tokenPrefix}${kw}:`
-        img.title = kw
         img.loading = 'lazy'
         img.referrerPolicy = 'no-referrer'
         img.addEventListener('click', () => insertEmojiToken(tokenPrefix + kw))
@@ -1150,6 +1147,7 @@ async function init(): Promise<void> {
   }
 
   function renderEmojiPanel(): void {
+    hideEmojiPreview()
     emojiPanel.textContent = ''
     if (emojiPacks.length === 0) {
       const hint = document.createElement('span')
@@ -1189,6 +1187,124 @@ async function init(): Promise<void> {
       emojiPanel.hidden = true
     }
   })
+
+  // ── Emoji hover preview (singleton floating div, fine-pointer only) ─────
+  const emojiPreview = document.createElement('div')
+  emojiPreview.style.cssText =
+    'position:fixed;z-index:100;pointer-events:none;max-width:120px;max-height:120px;object-fit:contain;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transition:opacity 120ms ease;display:none;'
+  document.body.appendChild(emojiPreview)
+
+  let emojiPreviewVisible = false
+  let emojiPreviewSrc = ''
+
+  function positionEmojiPreview(e: MouseEvent): void {
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const pw = 120
+    const ph = 120
+    let x = e.clientX + 16
+    let y = e.clientY + 16
+    if (x + pw > vw) x = e.clientX - pw - 8
+    if (y + ph > vh) y = e.clientY - ph - 8
+    emojiPreview.style.left = `${Math.max(0, x)}px`
+    emojiPreview.style.top = `${Math.max(0, y)}px`
+  }
+
+  function hideEmojiPreview(): void {
+    if (!emojiPreviewVisible) return
+    emojiPreviewVisible = false
+    emojiPreviewSrc = ''
+    emojiPreview.style.opacity = '0'
+    setTimeout(() => { emojiPreview.style.display = 'none' }, 130)
+  }
+
+  // Event delegation on the emoji panel. Only active for fine pointers.
+  if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    function showEmojiPreview(img: HTMLImageElement, e: MouseEvent): void {
+      if (emojiPreviewVisible) {
+        // Same image — just reposition
+        if (emojiPreviewSrc === img.src) {
+          positionEmojiPreview(e)
+          return
+        }
+        // Different image — swap src/alt on the existing clone
+        const existing = emojiPreview.querySelector('img')
+        if (existing) {
+          existing.src = img.src
+          existing.alt = img.alt
+        }
+        emojiPreviewSrc = img.src
+        positionEmojiPreview(e)
+        return
+      }
+      // First show
+      emojiPreviewVisible = true
+      emojiPreviewSrc = img.src
+      emojiPreview.textContent = ''
+      const clone = document.createElement('img')
+      clone.src = img.src
+      clone.alt = img.alt
+      clone.referrerPolicy = 'no-referrer'
+      clone.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;'
+      emojiPreview.appendChild(clone)
+      emojiPreview.style.display = 'block'
+      requestAnimationFrame(() => { emojiPreview.style.opacity = '1' })
+      positionEmojiPreview(e)
+    }
+
+    emojiPanel.addEventListener('mouseenter', (e) => {
+      const t = e.target as HTMLElement
+      if (t.tagName === 'IMG' && t.closest('.emoji-grid')) {
+        showEmojiPreview(t as HTMLImageElement, e as MouseEvent)
+      }
+    }, true)
+
+    emojiPanel.addEventListener('mousemove', (e) => {
+      if (emojiPreviewVisible) positionEmojiPreview(e)
+    }, true)
+
+    emojiPanel.addEventListener('mouseleave', (e) => {
+      const t = e.target as HTMLElement
+      if (t === emojiPanel || t.classList.contains('emoji-grid') || t.classList.contains('emoji-tabs')) {
+        hideEmojiPreview()
+      }
+    }, true)
+
+    // Also hide on grid scroll
+    emojiPanel.addEventListener('scroll', () => {
+      hideEmojiPreview()
+    }, true)
+  }
+
+  // ── Wheel on .emoji-tabs switches pack (event delegation on #emoji-panel) ──
+  emojiPanel.addEventListener('wheel', (e) => {
+    // Only react when the pointer is over the tab rail
+    const tabs = (e.target as HTMLElement).closest('.emoji-tabs')
+    if (!tabs) return
+    // Shift+wheel (horizontal gesture) → let it scroll the tab rail
+    if (e.shiftKey) return
+    const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0
+    if (dir === 0) return
+    const next = emojiPackIndex + dir
+    if (next < 0 || next >= emojiPacks.length) return
+    e.preventDefault()
+    emojiPackIndex = next
+    renderEmojiPanel()
+    // Scroll the active tab into view using bounding rect delta
+    const newTabs = emojiPanel.querySelector('.emoji-tabs') as HTMLElement | null
+    if (newTabs) {
+      const activeTab = newTabs.children[next] as HTMLElement | undefined
+      if (activeTab) {
+        const railRect = newTabs.getBoundingClientRect()
+        const tabRect = activeTab.getBoundingClientRect()
+        if (tabRect.left < railRect.left) {
+          newTabs.scrollLeft -= railRect.left - tabRect.left
+        } else if (tabRect.right > railRect.right) {
+          newTabs.scrollLeft += tabRect.right - railRect.right
+        }
+      }
+    }
+  }, { passive: false })
 
   // Clicking outside the panel (or the button) dismisses it.
   document.addEventListener('click', (e) => {
@@ -1268,32 +1384,6 @@ async function init(): Promise<void> {
   setStatus('get record...', 'connecting')
   fetchRecord()
   refreshUploadVisibility()
-}
-
-/**
- * Pre-warms the first emoji pack's icon and first-screen images by assigning
- * their URLs to `new Image()` (browser only). Failures are silent — this is a
- * pure latency optimization and never affects rendering.
- */
-function prewarmEmoji(packs: EmojiPack[]): void {
-  if (typeof Image === 'undefined') return
-  const pack = packs[0]
-  if (!pack) return
-  const urls = new Set<string>()
-  if (pack.icon) {
-    const u = pack.urlOf(pack.icon)
-    if (u.startsWith('https://')) urls.add(u)
-  }
-  // First ~30 keywords cover the panel's first screen without over-fetching.
-  for (const kw of pack.keywords.slice(0, 30)) {
-    const u = pack.urlOf(kw)
-    if (u.startsWith('https://')) urls.add(u)
-  }
-  for (const u of urls) {
-    const img = new Image()
-    img.referrerPolicy = 'no-referrer'
-    img.src = u
-  }
 }
 
 if (typeof document !== 'undefined') {

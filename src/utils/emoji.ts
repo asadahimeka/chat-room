@@ -40,7 +40,7 @@ export const CACHE_PREFIX = 'emoji-manifest:'
 /** Cache TTL: 24 hours. */
 export const CACHE_TTL = 24 * 60 * 60 * 1000
 /** Max number of cached manifest keys before the oldest is evicted. */
-export const CACHE_MAX = 50
+export const CACHE_MAX = 120
 
 interface CachedManifest {
   name: string

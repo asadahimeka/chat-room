@@ -1,12 +1,15 @@
 /**
- * Service Worker — emoji image cache (cache-first).
+ * Service Worker — two-namespace cache-first.
+ *
+ *  - `emoji-img-v2`: cross-origin emoji images ONLY (opaque no-cors, 2000-entry
+ *    cap with oldest-first eviction). Emoji churn can never evict site assets.
+ *  - `static-v1`: same-origin immutable assets ONLY — the hashed app-shell
+ *    JS/CSS plus the vendored emoji manifest JSON. Exact-URL sets, no eviction
+ *    (a handful of entries, all content-hashed).
  *
  * Hand-written native JS served from the site root so it can control /room/*
- * pages (the static dir is only mounted under /static/*). It intercepts only
- * emoji image requests (GET + https + destination 'image' + URL starts with one
- * of the registered emoji base prefixes) and serves them cache-first, falling
- * back to the network. Every path is wrapped so a failure never breaks a normal
- * request.
+ * pages (the static dir is only mounted under /static/*). Every path is
+ * wrapped so a failure never breaks a normal request.
  *
  * The prefix-matching semantics mirror src/utils/emoji.ts `isEmojiImageUrl`
  * (https check + startsWith any prefix). This file cannot import TS, so the
@@ -16,10 +19,10 @@
 const CACHE = 'emoji-img-v2'
 const MAX_ENTRIES = 2000
 
-// Vendored emoji manifest cache (same-origin JSON, built via
-// `bun run vendor-emoji`). Exact-URL set, NOT prefix matching — the manifest
-// is a single hashed file, so one entry is enough.
-const MANIFEST_CACHE = 'emoji-manifest-v1'
+// Same-origin static namespace (hashed app-shell JS/CSS + vendored emoji
+// manifest JSON, built via `bun run vendor-emoji`). Exact-URL sets, NOT prefix
+// matching — a handful of content-hashed files, so no eviction is needed.
+const STATIC_CACHE = 'static-v1'
 let manifestUrls = new Set()
 
 // Module-level list of emoji base URLs, populated via postMessage from the page.
@@ -44,7 +47,7 @@ self.addEventListener('activate', (event) => {
           const names = await caches.keys()
           await Promise.all(
             names.map((n) =>
-              n !== CACHE && n !== MANIFEST_CACHE ? caches.delete(n) : Promise.resolve(),
+              n !== CACHE && n !== STATIC_CACHE ? caches.delete(n) : Promise.resolve(),
             ),
           )
         } catch {
@@ -114,11 +117,12 @@ async function handle(request) {
   return response
 }
 
-// Same-origin manifest JSON handler: cache-first under MANIFEST_CACHE.
-// Unlike emoji images (opaque no-cors), the manifest is same-origin so only
-// ok responses are cached; no entry-count enforcement (single file).
-async function handleManifest(request) {
-  const cache = await caches.open(MANIFEST_CACHE)
+// Same-origin static handler: cache-first under STATIC_CACHE.
+// Unlike emoji images (opaque no-cors), same-origin assets always have
+// ok responses, so only those are cached; no entry-count enforcement
+// (a handful of content-hashed files).
+async function handleStatic(request) {
+  const cache = await caches.open(STATIC_CACHE)
   const cached = await cache.match(request)
   if (cached) return cached
   const response = await fetch(request)
@@ -140,16 +144,12 @@ self.addEventListener('fetch', (event) => {
     if (req.method !== 'GET') return
     const url = req.url
     if (typeof url !== 'string') return
-    // App-shell assets (hashed JS/CSS) are cache-first too — first hit warms the
-    // cache via the normal network path, subsequent loads are served offline.
-    if (appShell.has(url)) {
-      event.respondWith(handle(req))
-      return
-    }
-    // Vendored emoji manifest: same-origin JSON, destination '' — it never
-    // reaches the image guard below, so intercept by exact URL first.
-    if (manifestUrls.has(url)) {
-      event.respondWith(handleManifest(req))
+    // Same-origin static assets (hashed app-shell JS/CSS + vendored emoji
+    // manifest JSON): exact-URL match into the STATIC_CACHE namespace.
+    // The manifest is destination '' so it never reaches the image guard
+    // below — intercept both here, before the emoji-image branch.
+    if (appShell.has(url) || manifestUrls.has(url)) {
+      event.respondWith(handleStatic(req))
       return
     }
     if (!url.startsWith('https://')) return
