@@ -375,4 +375,86 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
     b.ws.close()
     app.stop()
   })
+
+  test('clientId is broadcast to all clients but NOT persisted to DB', async () => {
+    const room = randomRoomName('tcid')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    a.ws.send(
+      JSON.stringify({
+        type: 'message',
+        data: {
+          uid: 'u1',
+          name: 'Alice',
+          msg: 'with id',
+          namecolor: '#ff0000',
+          msgcolor: '#00ff00',
+          clientId: 'c1',
+        },
+      }),
+    )
+
+    // Both clients should receive the message with clientId
+    const msgA = await a.waitFor('msg')
+    expect((msgA[0].data as Record<string, unknown>).clientId).toBe('c1')
+    const msgB = await b.waitFor('msg')
+    expect((msgB[0].data as Record<string, unknown>).clientId).toBe('c1')
+
+    // DB row must NOT contain clientId
+    const rows = db.getRecord(room)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).not.toHaveProperty('clientId')
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
+
+  test('invalid clientId is NOT broadcast to clients', async () => {
+    const room = randomRoomName('tcid-bad')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+    const b = await connect(`${baseUrl}?roomId=${room}&t=s2`, {
+      cookie: 'name=Bob; uid=u2',
+    })
+    await a.waitFor('online', 2)
+    await b.waitFor('online')
+
+    a.ws.send(
+      JSON.stringify({
+        type: 'message',
+        data: {
+          uid: 'u1',
+          name: 'Alice',
+          msg: 'bad id',
+          namecolor: '#ff0000',
+          msgcolor: '#00ff00',
+          clientId: '<script>alert(1)</script>',
+        },
+      }),
+    )
+
+    const msgB = await b.waitFor('msg')
+    const item = msgB[0].data as Record<string, unknown>
+    expect(item).not.toHaveProperty('clientId')
+    expect(item.msg).toBe('bad id')
+
+    a.ws.close()
+    b.ws.close()
+    app.stop()
+  })
 })

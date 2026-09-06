@@ -10,12 +10,75 @@
 
 import { Notify } from './notify'
 import { linkify } from './linkify'
-import type { JoinedUser, MsgItem } from '../ws/protocol'
+import type { ClientEvent, ClientMessage, JoinedUser, MsgItem } from '../ws/protocol'
+export { sanitizeClientId } from '../ws/protocol'
 import { renderMarkdown } from '../utils/markdown'
 import { resolveEmojiConfig, buildEmojiMap, packsFromManifest, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
 import { readableColor } from '../utils/color'
 import { loadHistoryCache, saveHistoryCache, clearHistoryCache, type CachedMsg } from '../utils/history-cache'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
+
+export const PENDING_TIMEOUT_MS = 8000
+export const PIN_TOLERANCE_PX = 32
+
+// ── Task 4: History loading tri-state tip ─────────────────────────────
+export type HistoryTipState = 'hidden' | 'loading' | 'error' | 'end'
+
+/** Returns the user-facing text for a given history tip state. */
+export function historyTipText(state: HistoryTipState): string {
+  switch (state) {
+    case 'loading':
+      return '加载历史中…'
+    case 'error':
+      return '加载失败，点击重试'
+    case 'end':
+      return '没有更多历史了'
+    case 'hidden':
+      return ''
+  }
+}
+
+export function isPinned(scrollTop: number, clientHeight: number, scrollHeight: number, tolerance = PIN_TOLERANCE_PX): boolean {
+  return scrollTop + clientHeight >= scrollHeight - tolerance
+}
+
+export function formatUnreadLabel(n: number): string {
+  if (n <= 0) return ''
+  return n > 99 ? '↓ 99+ 条新消息' : `↓ ${n} 条新消息`
+}
+
+export function shouldCountAsUnread(kind: 'sys' | 'msg', isSelf: boolean): boolean {
+  return kind === 'sys' ? true : !isSelf
+}
+
+/**
+ * Unread gate: only LIVE arrivals while scrolled up count. Bulk history
+ * load (cache restore / fetchRecord, ~100 appends while scrollTop sits at 0)
+ * must never drive the pill — otherwise it visibly counts up on every init
+ * and flashes away on the landing scroll.
+ */
+export function shouldAccumulateUnread(live: boolean, pinned: boolean): boolean {
+  return live && !pinned
+}
+
+/**
+ * Pill visibility: show ONLY when the reader is scrolled up AND there are
+ * unreads. The previous `pinned && unread === 0` (&&) showed an empty pill
+ * whenever unpinned, and flashed it during initial history load.
+ */
+export function shouldHidePill(pinned: boolean, unreadCount: number): boolean {
+  return pinned || unreadCount <= 0
+}
+
+/**
+ * Builds the wire payload for an outgoing chat message. clientId MUST live
+ * inside `data` — the server reads `event.data.clientId` (see
+ * src/ws/handler.ts); a top-level clientId is silently ignored, which broke
+ * echo matching and duplicated own messages.
+ */
+export function buildMessagePayload(fields: ClientMessage, clientId: string): ClientEvent {
+  return { type: 'message', data: { ...fields, clientId } }
+}
 
 export function formatTime(ts: number): string {
   return new Date(ts * 1000).toLocaleString()
@@ -174,6 +237,34 @@ async function init(): Promise<void> {
   const limit = 100
   let loading = false
   let finished = false
+  let unread = 0
+  // Becomes true once the initial history bulk-load has landed at the
+  // bottom. Gates unread accumulation (see shouldAccumulateUnread).
+  let liveMode = false
+  // Stick-to-bottom: the persistent intent to stay pinned. Set on every
+  // user scroll (true only when actually pinned), engaged by landings /
+  // own sends / pill clicks. Unlike an instantaneous pinned-check, the
+  // stick survives sequential layout growth (many images loading one by
+  // one), where each grower's own gap would otherwise defeat every re-pin.
+  let stickToBottom = true
+  const pill = el<HTMLButtonElement>('scroll-bottom')
+  const historyTip = el<HTMLElement>('history-tip')
+
+  // ── Task 4: history loading tri-state ───────────────────────────────
+  let historyTipState: HistoryTipState = 'hidden'
+  function setTip(state: HistoryTipState): void {
+    historyTipState = state
+    historyTip.textContent = historyTipText(state)
+    historyTip.hidden = state === 'hidden'
+  }
+
+  function renderPill(): void {
+    pill.textContent = formatUnreadLabel(unread)
+    pill.hidden = shouldHidePill(
+      isPinned(msgList.scrollTop, msgList.clientHeight, msgList.scrollHeight),
+      unread,
+    )
+  }
 
   // Reads the active theme's --bg custom property (the surface chat messages
   // sit on) so per-message colors can be made readable against it.
@@ -193,6 +284,17 @@ async function init(): Promise<void> {
   // same message. Capped at 500 entries with FIFO eviction to avoid leaks.
   const renderedMsgKeys = new Set<string>()
   const MAX_RENDERED_KEYS = 500
+
+  // Optimistic send: track pending messages by clientId so echoes can
+  // transition them from .pending → confirmed, and failed sends can be
+  // retried via the .failed click handler.
+  const pendingMap = new Map<string, { node: HTMLElement; timer: ReturnType<typeof setTimeout> }>()
+  // Seen clientIds that have already been confirmed or timed out. A late echo
+  // (after timeout) for a known clientId is silently dropped — the .failed node
+  // already shows the content and the user clicks to resend as a new message.
+  // Capped at 500 with FIFO eviction to prevent leaks.
+  const seenClientIds = new Set<string>()
+  const MAX_SEEN_CLIENT_IDS = 500
 
   const themeToggle = document.getElementById('theme-toggle') as HTMLButtonElement | null
   if (themeToggle) {
@@ -379,6 +481,10 @@ async function init(): Promise<void> {
       }
       setTimeout(() => {
         msgList.scrollTop = msgList.scrollHeight
+        // Cache bulk-load has landed — further arrivals are live.
+        liveMode = true
+        stickToBottom = true
+        renderPill()
       }, 100)
     }
   } catch (e) {
@@ -438,9 +544,6 @@ async function init(): Promise<void> {
         if (oldest !== undefined) renderedMsgKeys.delete(oldest)
       }
     }
-
-    const scrollFlag =
-      msgList.scrollTop + msgList.clientHeight >= msgList.scrollHeight - 2
 
     // Active theme background, used to keep per-message colors readable.
     const themeBg = currentThemeBg()
@@ -519,12 +622,22 @@ async function init(): Promise<void> {
       msgList.prepend(node)
     } else {
       msgList.appendChild(node)
-      // Own messages always land at the bottom; otherwise only scroll when the
-      // reader was already pinned there (so reading history isn't yanked down).
-      if (scrollFlag || forceScroll) {
+      // Stick-to-bottom: own messages engage the stick and always land at
+      // the bottom; otherwise scroll only while the stick is engaged (the
+      // reader is pinned — reading history is never yanked down).
+      if (forceScroll) stickToBottom = true
+      if (stickToBottom) {
         setTimeout(() => {
           msgList.scrollTop = msgList.scrollHeight
         }, 100)
+      }
+      // Track unread count for the scroll-to-bottom pill (live arrivals only;
+      // bulk history load is gated by liveMode — see shouldAccumulateUnread).
+      if (shouldAccumulateUnread(liveMode, isPinned(msgList.scrollTop, msgList.clientHeight, msgList.scrollHeight))) {
+        if (shouldCountAsUnread(item.type, item.type === 'msg' && item.uid === userInfo?.uid)) {
+          unread++
+          renderPill()
+        }
       }
     }
 
@@ -658,29 +771,101 @@ async function init(): Promise<void> {
   }
   autoGrow()
 
+  function markFailed(clientId: string): void {
+    const entry = pendingMap.get(clientId)
+    if (!entry) return
+    pendingMap.delete(clientId)
+    clearTimeout(entry.timer)
+    entry.node.classList.remove('pending')
+    entry.node.classList.add('failed')
+    // Track clientId so a late echo (after timeout) is dropped.
+    if (seenClientIds.size >= MAX_SEEN_CLIENT_IDS) {
+      const oldestCid = seenClientIds.values().next().value
+      if (oldestCid !== undefined) seenClientIds.delete(oldestCid)
+    }
+    seenClientIds.add(clientId)
+    // Attach click-to-resend: removes old node and runs full send() with new clientId.
+    entry.node.addEventListener('click', () => {
+      entry.node.remove()
+      // Restore the raw message text (preserves markdown syntax) into the
+      // input so the user can edit before resend.
+      const rawMsg = (entry.node.querySelector('.msg') as HTMLElement | null)?.dataset?.raw
+        ?? entry.node.querySelector('.msg')?.textContent
+        ?? ''
+      // If the input is empty, fill it with the failed message; otherwise
+      // send whatever the user has typed (send() reads msgInput directly).
+      if (!msgInput.value.trim()) {
+        msgInput.value = rawMsg
+      }
+      send()
+    }, { once: true })
+    showToast('发送失败，点击消息可重试')
+  }
+
   function send(): void {
     const name = nameInput.value
     const msg = msgInput.value.trim()
-    if (!name || !msg || !userInfo || !socket || socket.readyState !== WebSocket.OPEN) return
+    if (!name || !msg || !userInfo) return
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      showToast('还没连上，稍后重试')
+      return
+    }
 
-    socket.send(
-      JSON.stringify({
-        type: 'message',
-        data: {
-          uid: userInfo.uid,
-          name,
-          msg,
-          namecolor: userPrefs.namecolor,
-          msgcolor: userPrefs.msgcolor,
-          meta: serializeOutgoingMeta(userPrefs),
-        },
-      }),
+    const clientId = genSid()
+    const payload = buildMessagePayload(
+      {
+        uid: userInfo.uid,
+        name,
+        msg,
+        namecolor: userPrefs.namecolor ?? DEFAULT_NAME_COLOR,
+        msgcolor: userPrefs.msgcolor ?? DEFAULT_MSG_COLOR,
+        meta: serializeOutgoingMeta(userPrefs),
+      },
+      clientId,
     )
+
+    // Optimistic append: render a .pending placeholder immediately.
+    appendMsg({
+      type: 'msg',
+      name,
+      uid: userInfo.uid,
+      time: formatTime(Date.now() / 1000),
+      rawTs: Date.now() / 1000,
+      msg,
+      namecolor: userPrefs.namecolor,
+      msgcolor: userPrefs.msgcolor,
+      highlight: false,
+      meta: serializeOutgoingMeta(userPrefs),
+    }, 'after', true)
+
+    // Grab the just-appended node (last child of msgList).
+    const pendingNode = msgList.lastElementChild as HTMLElement | null
+    if (pendingNode) {
+      pendingNode.classList.add('pending')
+      pendingNode.dataset.clientId = clientId
+    }
+
+    // Start timeout timer — if no echo within 8s, mark as failed.
+    const timer = setTimeout(() => markFailed(clientId), PENDING_TIMEOUT_MS)
+    if (pendingNode) {
+      pendingMap.set(clientId, { node: pendingNode, timer })
+    }
+
+    try {
+      socket.send(JSON.stringify(payload))
+    } catch (e) {
+      console.log(e)
+      markFailed(clientId)
+      showToast('发送出错，请重试')
+      return
+    }
+
     msgInput.value = ''
     msgInput.style.height = ''
     autoGrow()
     // Fallback: make sure the composer's own send lands the view at the bottom
     // even before the WS echo round-trips back (the echo also force-scrolls).
+    stickToBottom = true
     setTimeout(() => {
       msgList.scrollTop = msgList.scrollHeight
     }, 100)
@@ -740,6 +925,37 @@ async function init(): Promise<void> {
               to: userInfo.name,
               msg: m.msg,
             })
+          }
+          // Optimistic echo match: if the incoming message carries a clientId
+          // that's in our pendingMap, transition the placeholder to confirmed.
+          // Register the server-side dedup key (K2) so reconnect fetchRecord
+          // doesn't re-render this message.
+          if (m.clientId && pendingMap.has(m.clientId)) {
+            const entry = pendingMap.get(m.clientId)!
+            pendingMap.delete(m.clientId)
+            clearTimeout(entry.timer)
+            entry.node.classList.remove('pending')
+            // Register server-side dedup key (uid|ts|msg) with integer ts,
+            // matching the key format used by appendMsg.
+            const serverKey = `${m.uid ?? ''}|${m.ts ?? ''}|${m.msg ?? ''}`
+            renderedMsgKeys.add(serverKey)
+            if (renderedMsgKeys.size > MAX_RENDERED_KEYS) {
+              const oldest = renderedMsgKeys.values().next().value
+              if (oldest !== undefined) renderedMsgKeys.delete(oldest)
+            }
+            // Track clientId so a late echo (after timeout) is also dropped.
+            if (seenClientIds.size >= MAX_SEEN_CLIENT_IDS) {
+              const oldestCid = seenClientIds.values().next().value
+              if (oldestCid !== undefined) seenClientIds.delete(oldestCid)
+            }
+            seenClientIds.add(m.clientId)
+            break
+          }
+          // Late echo: clientId was already seen (confirmed or timed out).
+          // Drop silently — .failed node already shows content; user clicks
+          // to resend as a new message.
+          if (m.clientId && seenClientIds.has(m.clientId)) {
+            break
           }
           // Own echoed message forces the view to the bottom; others only
           // scroll if the reader was already pinned there.
@@ -817,6 +1033,10 @@ async function init(): Promise<void> {
         // Initial load lands the reader on the newest message.
         setTimeout(() => {
           msgList.scrollTop = msgList.scrollHeight
+          // History bulk-load has landed — further arrivals are live.
+          liveMode = true
+          stickToBottom = true
+          renderPill()
         }, 100)
         // Persist a snapshot for instant restore on the next visit
         // (stale-while-revalidate). Fire-and-forget; failures are silent.
@@ -836,6 +1056,10 @@ async function init(): Promise<void> {
       })
       .catch((e) => {
         console.log(e)
+        // No bulk load happened — go live immediately so later arrivals
+        // still drive the pill.
+        liveMode = true
+        renderPill()
         connect()
       })
   }
@@ -843,13 +1067,14 @@ async function init(): Promise<void> {
   function getRecord(): void {
     if (loading || finished) return
     loading = true
+    setTip('loading')
     const scrollHeight = msgList.scrollHeight
     fetch(`/room/@${roomId}/record?offset=${offset}&limit=${limit}`)
       .then((r) => r.json())
       .then((data: RecordRow[]) => {
         if (data.length === 0) {
           finished = true
-          appendMsg({ type: 'sys', msg: 'No more record.' }, 'before')
+          setTip('end')
           return
         }
         for (const m of data) {
@@ -872,15 +1097,66 @@ async function init(): Promise<void> {
           msgList.scrollTop = msgList.scrollHeight - scrollHeight
         }, 100)
         offset += limit
+        setTip('hidden')
+      })
+      .catch((e) => {
+        console.log(e)
+        setTip('error')
+        showToast('历史加载失败')
       })
       .finally(() => {
         loading = false
       })
   }
 
+  // ── Task 4: 200ms debounce for scroll-triggered history load ─────────
+  let tipTimer: ReturnType<typeof setTimeout> | null = null
   msgList.addEventListener('scroll', () => {
-    if (msgList.scrollTop < 300) getRecord()
+    if (msgList.scrollTop < 300) {
+      if (tipTimer === null) {
+        tipTimer = setTimeout(() => {
+          tipTimer = null
+          getRecord()
+        }, 200)
+      }
+    }
+    // The stick follows the reader: any scroll away from the bottom
+    // disengages it (later image loads won't yank); scrolling back to the
+    // bottom re-engages it. Programmatic pins flow through here as well.
+    stickToBottom = isPinned(msgList.scrollTop, msgList.clientHeight, msgList.scrollHeight)
+    if (stickToBottom) {
+      unread = 0
+    }
+    renderPill()
   })
+
+  pill.addEventListener('click', () => {
+    stickToBottom = true
+    msgList.scrollTop = msgList.scrollHeight
+    unread = 0
+    renderPill()
+  })
+
+  // ── Task 4: history tip click → retry on error ─────────────────────
+  historyTip.addEventListener('click', () => {
+    if (historyTipState === 'error') getRecord()
+  })
+
+  // Pin images that load while the stick is engaged. The pin is deferred
+  // to the next animation frame: at `load` time layout hasn't applied the
+  // new image size yet (scrollHeight is stale), so pinning synchronously
+  // lands short and leaves a gap. The stick (not an instantaneous
+  // pinned-check) is re-read inside rAF: sequential image growth unpins
+  // momentarily by construction, and only a real user scroll-up disengages.
+  msgList.addEventListener('load', (e) => {
+    const target = e.target as HTMLElement
+    if (target.tagName !== 'IMG') return
+    requestAnimationFrame(() => {
+      if (stickToBottom) {
+        msgList.scrollTop = msgList.scrollHeight
+      }
+    })
+  }, true)
 
   sendBtn.addEventListener('click', send)
 

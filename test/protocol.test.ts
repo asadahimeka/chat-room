@@ -3,6 +3,7 @@ import { TypeCompiler } from '@sinclair/typebox/compiler'
 import {
   ClientEventSchema,
   ServerEventSchema,
+  sanitizeClientId,
   type ClientEvent,
   type ClientMessage,
   type JoinedUser,
@@ -167,5 +168,22 @@ describe('protocol schemas', () => {
 
   test('ClientEventSchema rejects a message missing required fields', () => {
     expect(clientCheck.Check({ type: 'message', data: { uid: 'u1' } })).toBe(false)
+  })
+
+  test('ClientEventSchema accepts message with valid clientId', () => {
+    expect(clientCheck.Check({
+      type: 'message',
+      data: { uid: 'u1', name: 'a', msg: 'hi', namecolor: '#fff', msgcolor: '#000', clientId: 'abc123' },
+    })).toBe(true)
+  })
+})
+
+describe('sanitizeClientId', () => {
+  test('accepts 1-32 [A-Za-z0-9_-], rejects the rest', () => {
+    expect(sanitizeClientId('abc-123_X')).toBe('abc-123_X')
+    expect(sanitizeClientId('')).toBeUndefined()
+    expect(sanitizeClientId('a'.repeat(33))).toBeUndefined()
+    expect(sanitizeClientId('<script>')).toBeUndefined()
+    expect(sanitizeClientId(42)).toBeUndefined()
   })
 })

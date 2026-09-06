@@ -153,7 +153,10 @@ export function renderRoomPage({ roomId, title, emoji, uploadHost: uploadHostPro
             <div id="user-list"></div>
           </aside>
           <main class="message-list">
-            <div id="msg-list"></div>
+            <div id="msg-list">
+              <div id="history-tip" class="sys-msg" hidden></div>
+            </div>
+            <button id="scroll-bottom" class="scroll-bottom" type="button" hidden></button>
           </main>
           <footer class="composer">
             <input id="name-input" type="text" placeholder="nickname" maxlength="32">

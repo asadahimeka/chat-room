@@ -39,6 +39,8 @@ export type MsgItem = {
   msg: string
   /** Optional JSON string of render hints (avatar|font|size|bold|italic|bubble). */
   meta?: string
+  /** Client-assigned correlation id for send-history dedup; broadcast-only, never persisted. */
+  clientId?: string
 }
 
 export type ClientMessage = {
@@ -49,6 +51,8 @@ export type ClientMessage = {
   msgcolor: string
   /** Optional JSON string of render hints; server sanitizes before broadcast. */
   meta?: string
+  /** Client-assigned correlation id for send-history dedup. */
+  clientId?: string
 }
 
 export type ServerEvent =
@@ -78,6 +82,7 @@ const MsgItemSchema = t.Object({
   msgcolor: t.String(),
   msg: t.String(),
   meta: t.Optional(t.String()),
+  clientId: t.Optional(t.String()),
 })
 
 const ClientMessageSchema = t.Object({
@@ -87,6 +92,7 @@ const ClientMessageSchema = t.Object({
   namecolor: t.String(),
   msgcolor: t.String(),
   meta: t.Optional(t.String()),
+  clientId: t.Optional(t.String()),
 })
 
 export const ServerEventSchema = t.Union([
@@ -102,3 +108,15 @@ export const ClientEventSchema = t.Union([
   t.Object({ type: t.Literal('change-name'), data: t.String() }),
   t.Object({ type: t.Literal('leave') }),
 ])
+
+/**
+ * Sanitize a client-supplied correlation id.
+ *
+ * Rules: must be a string, 1-32 chars, only `[A-Za-z0-9_-]`.
+ * Returns `undefined` on any violation (silently dropped).
+ */
+export function sanitizeClientId(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  if (raw.length < 1 || raw.length > 32) return undefined
+  return /^[A-Za-z0-9_-]+$/.test(raw) ? raw : undefined
+}

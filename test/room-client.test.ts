@@ -15,6 +15,14 @@ import {
   inIframe,
   isMobile,
   parseRoomData,
+  isPinned,
+  formatUnreadLabel,
+  shouldCountAsUnread,
+  sanitizeClientId,
+  historyTipText,
+  shouldHidePill,
+  buildMessagePayload,
+  shouldAccumulateUnread,
 } from '../src/views/room.client'
 import {
   applyMetaClasses,
@@ -432,6 +440,33 @@ describe('upload button loading state', () => {
   })
 })
 
+describe('isPinned', () => {
+  it('isPinned tolerates 32px near-bottom', () => {
+    // scrollTop=900 + clientHeight=100 = 1000 >= scrollHeight(1000) - 32 → true
+    expect(isPinned(900, 100, 1000)).toBe(true)
+    // scrollTop=0 + clientHeight=100 = 100 < 1000 - 32 = 968 → false
+    expect(isPinned(0, 100, 1000)).toBe(false)
+    // Exact bottom: scrollTop=900 + clientHeight=100 = 1000 >= 1000 - 0 → true
+    expect(isPinned(900, 100, 1000, 0)).toBe(true)
+  })
+})
+
+describe('formatUnreadLabel', () => {
+  it('formatUnreadLabel caps at 99+', () => {
+    expect(formatUnreadLabel(0)).toBe('')
+    expect(formatUnreadLabel(3)).toBe('↓ 3 条新消息')
+    expect(formatUnreadLabel(120)).toBe('↓ 99+ 条新消息')
+  })
+})
+
+describe('shouldCountAsUnread', () => {
+  it('shouldCountAsUnread counts sys + others, not self', () => {
+    expect(shouldCountAsUnread('sys', false)).toBe(true)
+    expect(shouldCountAsUnread('msg', false)).toBe(true)
+    expect(shouldCountAsUnread('msg', true)).toBe(false)
+  })
+})
+
 describe('safeParseMeta', () => {
   it('parses valid JSON objects', () => {
     expect(safeParseMeta('{"bold":true}')).toEqual({ bold: true })
@@ -450,5 +485,73 @@ describe('safeParseMeta', () => {
     expect(safeParseMeta(null)).toBeNull()
     expect(safeParseMeta(undefined)).toBeNull()
     expect(safeParseMeta('')).toBeNull()
+  })
+})
+
+// ── Task 3: sanitizeClientId re-export + resend id uniqueness ──────────
+describe('sanitizeClientId (re-exported from room.client)', () => {
+  it('passes through valid ids', () => {
+    expect(sanitizeClientId('ok-1_x')).toBe('ok-1_x')
+  })
+
+  it('rejects ids with spaces', () => {
+    expect(sanitizeClientId('no spaces')).toBeUndefined()
+  })
+})
+
+describe('genSid uniqueness (Task 3 resend)', () => {
+  it('resend uses a fresh id (no reuse)', () => {
+    expect(genSid()).not.toBe(genSid())
+  })
+})
+
+// ── Bugfix: pill visibility + payload shape ────────────────────────────
+describe('shouldHidePill', () => {
+  it('hides when pinned, regardless of unread', () => {
+    expect(shouldHidePill(true, 0)).toBe(true)
+    expect(shouldHidePill(true, 5)).toBe(true)
+  })
+
+  it('hides when there is nothing to show, even if scrolled up', () => {
+    expect(shouldHidePill(false, 0)).toBe(true)
+  })
+
+  it('shows only when scrolled up AND there are unreads', () => {
+    expect(shouldHidePill(false, 3)).toBe(false)
+  })
+})
+
+describe('buildMessagePayload', () => {
+  it('places clientId inside data (server reads event.data.clientId)', () => {
+    const payload = buildMessagePayload(
+      { uid: 'u1', name: 'a', msg: 'hi', namecolor: '#117743', msgcolor: '#3d3d3d' },
+      'abc123',
+    )
+    expect(payload.type).toBe('message')
+    if (payload.type !== 'message') throw new Error('unreachable')
+    expect(payload.data.clientId).toBe('abc123')
+    expect(payload).not.toHaveProperty('clientId')
+  })
+})
+// ── Bugfix: live-only unread accumulation ────────────────────────────
+describe('shouldAccumulateUnread', () => {
+  it('counts only live arrivals while scrolled up', () => {
+    expect(shouldAccumulateUnread(true, false)).toBe(true)
+    expect(shouldAccumulateUnread(true, true)).toBe(false)
+  })
+
+  it('never counts bulk history load, even when unpinned', () => {
+    expect(shouldAccumulateUnread(false, false)).toBe(false)
+    expect(shouldAccumulateUnread(false, true)).toBe(false)
+  })
+})
+
+// ── Task 4: historyTipText ────────────────────────────────────────────
+describe('historyTipText', () => {
+  it('covers all states', () => {
+    expect(historyTipText('loading')).toBe('加载历史中…')
+    expect(historyTipText('error')).toBe('加载失败，点击重试')
+    expect(historyTipText('end')).toBe('没有更多历史了')
+    expect(historyTipText('hidden')).toBe('')
   })
 })

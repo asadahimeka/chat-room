@@ -433,6 +433,7 @@ body {
   grid-area: messages;
   min-height: 0;
   padding: 22px 24px 14px;
+  position: relative;
 }
 
 /* The scroll container is #msg-list itself — the client reads/writes
@@ -1046,8 +1047,61 @@ body {
 }
 
 /* --------------------------------------------------------------------------
-   12. Composer icon buttons, settings modal, emoji panel, bubble presets
-   -------------------------------------------------------------------------- */
+    12. Composer icon buttons, settings modal, emoji panel, bubble presets
+    -------------------------------------------------------------------------- */
+
+/* Scroll-to-bottom pill — floats bottom-right inside .message-list */
+.scroll-bottom {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  z-index: 30;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-pop);
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease-out);
+}
+
+.scroll-bottom:active {
+  transform: scale(0.95);
+}
+
+.scroll-bottom[hidden] {
+  display: none;
+}
+
+/* Optimistic send states — class names set in room.client.ts (send/markFailed).
+   Previously the JS toggled .pending/.failed with zero visual rules. */
+.message.pending {
+  opacity: 0.65;
+}
+
+.message.failed {
+  cursor: pointer;
+}
+
+.message.failed .bubble {
+  border-color: var(--danger);
+}
+
+.message.failed .bubble .msg::after {
+  content: "（发送失败，点击重发）";
+  color: var(--danger);
+  font-size: 12px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .scroll-bottom:hover {
+    background: var(--accent-strong);
+  }
+}
 
 /* The `hidden` attribute is overridden by the display values below, so the
    two floating layers must re-assert it explicitly. */

@@ -159,4 +159,14 @@ describe('renderRoomPage room page', () => {
     expect(html).toContain('role="dialog"')
     expect(html).toContain('aria-modal="true"')
   })
+
+  it('contains the scroll-to-bottom pill button', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    expect(html).toContain('id="scroll-bottom"')
+  })
+
+  it('contains the history-tip element inside #msg-list', () => {
+    const html = renderRoomPage({ roomId: '@demo' })
+    expect(html).toContain('id="history-tip"')
+  })
 })

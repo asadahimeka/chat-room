@@ -12,6 +12,7 @@ import {
   sanitizeUid,
   genGuestName,
 } from '../utils/input'
+import { sanitizeClientId } from './protocol'
 import type { ClientEvent, ServerEvent } from './protocol'
 
 interface ConnData {
@@ -128,6 +129,7 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
 
       if (event.type === 'message') {
         const m = event.data
+        const clientId = sanitizeClientId((m as { clientId?: unknown }).clientId)
         const msgItem: MsgRowInput = {
           ...m,
           sid,
@@ -140,10 +142,13 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
           meta: sanitizeMeta(m.meta),
           ip, // audit only — stripped before broadcast below
         }
-        // Broadcast a copy WITHOUT the audit ip (hard privacy boundary).
-        const { ip: _auditIp, ...broadcastItem } = msgItem
+        // Broadcast a copy WITHOUT the audit ip or raw clientId.
+        const { ip: _auditIp, clientId: _rawCid, ...rest } = msgItem as MsgRowInput & { clientId?: string }
+        const broadcastItem = clientId ? { ...rest, clientId } : rest
         broadcast(roomId, { type: 'msg', data: broadcastItem })
-        if (roomId !== 'demo') db.setRecord(msgItem)
+        // Persist WITHOUT clientId (not a DB column); ip IS kept for audit.
+        const { clientId: _drop, ...record } = msgItem as MsgRowInput & { clientId?: string }
+        if (roomId !== 'demo') db.setRecord(record)
       } else if (event.type === 'change-name') {
         const newName = processInput(sanitizeName(event.data))
         const oldName = name.substring(0, 32)
