@@ -276,7 +276,7 @@ describe('integration — WS round-trip (temp DB, live server)', () => {
     ])
 
     const sys = await b.waitFor('sys', 2)
-    expect(sys[1].data).toBe('Alice(u1) changed the name from Alice to Alice2.')
+    expect(sys[1].data).toBe('Alice(u1) 将昵称从「Alice」改为「Alice2」')
 
     a.ws.close()
     b.ws.close()
@@ -296,7 +296,7 @@ describe('integration — WS round-trip (temp DB, live server)', () => {
     a.ws.close()
 
     const sys = await b.waitFor('sys', 2)
-    expect(sys[1].data).toBe('Alice(u1) leave the chat.')
+    expect(sys[1].data).toBe('Alice(u1) 离开了聊天')
 
     const online = await b.waitFor('online', 2)
     expect(online[1].data).toEqual([{ uid: 'u2', name: 'Bob' }])

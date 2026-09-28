@@ -149,7 +149,7 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
     const aOnline = await a.waitFor('online')
     expect(aOnline[0].data).toEqual([{ uid: 'u1', name: 'Alice' }])
     const aSys = await a.waitFor('sys')
-    expect(aSys[0].data).toBe('Alice(u1) join the chat.')
+    expect(aSys[0].data).toBe('Alice(u1) 加入了聊天')
 
     const bInit = await b.waitFor('init')
     expect(bInit[0].data).toEqual({ uid: 'u2', name: 'Bob' })
@@ -159,7 +159,7 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
       { uid: 'u2', name: 'Bob' },
     ])
     const bSys = await b.waitFor('sys')
-    expect(bSys[0].data).toBe('Bob(u2) join the chat.')
+    expect(bSys[0].data).toBe('Bob(u2) 加入了聊天')
 
     const aOnline2 = await a.waitFor('online', 2)
     expect(aOnline2[1].data).toEqual([
@@ -374,7 +374,7 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
     ])
 
     const sys = await b.waitFor('sys', 2)
-    expect(sys[1].data).toBe('Alice(u1) changed the name from Alice to Alice2.')
+    expect(sys[1].data).toBe('Alice(u1) 将昵称从「Alice」改为「Alice2」')
 
     a.ws.close()
     b.ws.close()
@@ -398,7 +398,7 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
     a.ws.close()
 
     const sys = await b.waitFor('sys', 2)
-    expect(sys[1].data).toBe('Alice(u1) leave the chat.')
+    expect(sys[1].data).toBe('Alice(u1) 离开了聊天')
 
     const online = await b.waitFor('online', 2)
     expect(online[1].data).toEqual([{ uid: 'u2', name: 'Bob' }])

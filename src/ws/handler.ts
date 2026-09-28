@@ -128,7 +128,7 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
       rooms.set(roomId, conns)
 
       if (isNew) {
-        broadcast(roomId, { type: 'sys', data: `${name}(${uid}) join the chat.` })
+        broadcast(roomId, { type: 'sys', data: `${name}(${uid}) 加入了聊天` })
       }
       broadcast(roomId, { type: 'init', data: { uid, name } })
       broadcast(roomId, { type: 'online', data: roomState.list(roomId) })
@@ -168,7 +168,7 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
         data.name = newName
         broadcast(roomId, { type: 'rename', data: { uid: processInput(uid), name: newName } })
         broadcast(roomId, { type: 'online', data: roomState.list(roomId) })
-        const msg = `${oldName}(${uid}) changed the name from ${oldName} to ${newName}.`
+        const msg = `${oldName}(${uid}) 将昵称从「${oldName}」改为「${newName}」`
         broadcast(roomId, { type: 'sys', data: processInput(msg) })
       } else if (event.type === 'leave') {
         ws.close()
@@ -188,7 +188,7 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
       if (user) {
         broadcast(roomId, {
           type: 'sys',
-          data: `${processInput(user.name)}(${processInput(user.uid)}) leave the chat.`,
+          data: `${processInput(user.name)}(${processInput(user.uid)}) 离开了聊天`,
         })
         broadcast(roomId, { type: 'online', data: roomState.list(roomId) })
       }
