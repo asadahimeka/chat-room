@@ -16,7 +16,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { resolveEmojiConfig, buildEmojiMap, packsFromManifest, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
 import { readableColor } from '../utils/color'
 import { loadHistoryCache, saveHistoryCache, clearHistoryCache, type CachedMsg } from '../utils/history-cache'
-import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta } from '../utils/render'
+import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta, msgDedupKey, parseReplyFromMeta, buildReplyQuoteEl, isReplyToMe } from '../utils/render'
 
 export const PENDING_TIMEOUT_MS = 8000
 export const PIN_TOLERANCE_PX = 32
@@ -536,7 +536,7 @@ async function init(): Promise<void> {
     // uses the raw second-level `rawTs` (not the minute-grained `time` string)
     // so two identical messages sent in the same minute are NOT swallowed.
     if (item.type === 'msg') {
-      const key = `${item.uid ?? ''}|${item.rawTs ?? ''}|${item.msg ?? ''}`
+      const key = msgDedupKey(item.uid, item.rawTs, item.msg, item.meta)
       if (renderedMsgKeys.has(key)) return
       renderedMsgKeys.add(key)
       if (renderedMsgKeys.size > MAX_RENDERED_KEYS) {
@@ -610,6 +610,23 @@ async function init(): Promise<void> {
       msgSpan.dataset.hasLink = String(containsLink)
 
       if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
+
+      const replySnap = parseReplyFromMeta(item.meta)
+      if (replySnap) {
+        bubble.appendChild(
+          buildReplyQuoteEl(
+            {
+              ruid: replySnap.ruid,
+              rname: unescapeEntities(replySnap.rname),
+              rmsg: unescapeEntities(replySnap.rmsg),
+            },
+            userInfo?.uid,
+            isBlocked(replySnap.ruid, blockList),
+          ),
+        )
+        node.dataset.replyUid = replySnap.ruid
+        if (isReplyToMe(replySnap, userInfo?.uid)) node.classList.add('reply-to-me')
+      }
 
       bubble.appendChild(nickname)
       bubble.appendChild(msgSpan)
@@ -903,6 +920,7 @@ async function init(): Promise<void> {
           // History rendered before init had no identity — tag own bubbles now.
           msgList.querySelectorAll<HTMLElement>('.message[data-uid]').forEach((n) => {
             n.classList.toggle('self', n.dataset.uid === user.uid)
+            if (n.dataset.replyUid === user.uid) n.classList.add('reply-to-me')
           })
           break
         }
@@ -937,7 +955,7 @@ async function init(): Promise<void> {
             entry.node.classList.remove('pending')
             // Register server-side dedup key (uid|ts|msg) with integer ts,
             // matching the key format used by appendMsg.
-            const serverKey = `${m.uid ?? ''}|${m.ts ?? ''}|${m.msg ?? ''}`
+            const serverKey = msgDedupKey(m.uid, m.ts, m.msg, m.meta)
             renderedMsgKeys.add(serverKey)
             if (renderedMsgKeys.size > MAX_RENDERED_KEYS) {
               const oldest = renderedMsgKeys.values().next().value
