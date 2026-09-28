@@ -28,7 +28,7 @@ interface WsLike {
   send(data: string): unknown
 }
 
-const META_KEYS = ['avatar', 'font', 'size', 'bold', 'italic', 'bubble'] as const
+const META_KEYS = ['avatar', 'font', 'size', 'bold', 'italic', 'bubble', 'reply'] as const
 
 /**
  * Whitelist-sanitizes a client-supplied meta JSON string. Returns undefined
@@ -64,6 +64,17 @@ export function sanitizeMeta(raw: string | undefined): string | undefined {
       case 'bubble':
         if (value === 'default' || value === 'flat' || value === 'card' || value === 'minimal') cleaned[key] = value
         break
+      case 'reply': {
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) break
+        const r = value as Record<string, unknown>
+        if (typeof r.ruid !== 'string' || typeof r.rname !== 'string' || typeof r.rmsg !== 'string') break
+        const ruid = r.ruid.trim().substring(0, 7)
+        const rname = processInput(r.rname, true).substring(0, 32)
+        const rmsg = processInput(r.rmsg, true).substring(0, 100)
+        if (!ruid || !rname.trim() || !rmsg.trim()) break
+        cleaned[key] = { ruid, rname, rmsg }
+        break
+      }
       case 'avatar':
         if (typeof value === 'string' && (value.startsWith('https://') || value.startsWith('data:image'))) {
           cleaned[key] = value

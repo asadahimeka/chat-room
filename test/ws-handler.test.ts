@@ -98,6 +98,37 @@ describe('sanitizeMeta', () => {
     expect(sanitizeMeta(undefined)).toBeUndefined()
     expect(sanitizeMeta('')).toBeUndefined()
   })
+
+  test('valid reply passes through sanitized', () => {
+    const raw = '{"bold":true,"reply":{"ruid":"abc1234","rname":"Alice","rmsg":"hi there"}}'
+    expect(sanitizeMeta(raw)).toBe('{"bold":true,"reply":{"ruid":"abc1234","rname":"Alice","rmsg":"hi there"}}')
+  })
+
+  test('reply fields are truncated to 7/32/100 chars', () => {
+    const raw = JSON.stringify({
+      reply: { ruid: '1234567890', rname: 'N'.repeat(40), rmsg: 'M'.repeat(150) },
+    })
+    const out = sanitizeMeta(raw)
+    expect(out).toBeDefined()
+    const parsed = JSON.parse(out!) as { reply: { ruid: string; rname: string; rmsg: string } }
+    expect(parsed.reply.ruid).toBe('1234567')
+    expect(parsed.reply.rname).toBe('N'.repeat(32))
+    expect(parsed.reply.rmsg).toBe('M'.repeat(100))
+  })
+
+  test('reply with script payload never survives as raw markup', () => {
+    const raw = JSON.stringify({ reply: { ruid: 'u1', rname: 'A', rmsg: '<script>alert(1)</script>' } })
+    const out = sanitizeMeta(raw)
+    expect(out).toBeDefined()
+    expect(out!.includes('<script')).toBe(false)
+  })
+
+  test('reply dropped entirely when any field is missing or wrong type', () => {
+    expect(sanitizeMeta('{"bold":true,"reply":{"ruid":"u1","rname":"A"}}')).toBe('{"bold":true}')
+    expect(sanitizeMeta('{"bold":true,"reply":{"ruid":"u1","rname":"A","rmsg":42}}')).toBe('{"bold":true}')
+    expect(sanitizeMeta('{"bold":true,"reply":"nope"}')).toBe('{"bold":true}')
+    expect(sanitizeMeta('{"bold":true,"reply":{"ruid":"   ","rname":"A","rmsg":"q"}}')).toBe('{"bold":true}')
+  })
 })
 
 describe('ws handler — connection lifecycle + broadcast pipeline', () => {

@@ -37,7 +37,7 @@ export type MsgItem = {
   namecolor: string
   msgcolor: string
   msg: string
-  /** Optional JSON string of render hints (avatar|font|size|bold|italic|bubble). */
+  /** Optional JSON string of render hints (avatar|font|size|bold|italic|bubble|reply). */
   meta?: string
   /** Client-assigned correlation id for send-history dedup; broadcast-only, never persisted. */
   clientId?: string
@@ -49,7 +49,7 @@ export type ClientMessage = {
   msg: string
   namecolor: string
   msgcolor: string
-  /** Optional JSON string of render hints; server sanitizes before broadcast. */
+  /** Optional JSON string of render hints; server sanitizes before broadcast. reply = {ruid,rname,rmsg} quote snapshot. */
   meta?: string
   /** Client-assigned correlation id for send-history dedup. */
   clientId?: string
