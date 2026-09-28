@@ -16,7 +16,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { resolveEmojiConfig, buildEmojiMap, packsFromManifest, BUILTIN_EMOJI_ENTRIES, isEmojiOnlyMessage, type EmojiPack } from '../utils/emoji'
 import { readableColor } from '../utils/color'
 import { loadHistoryCache, saveHistoryCache, clearHistoryCache, type CachedMsg } from '../utils/history-cache'
-import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta, msgDedupKey, parseReplyFromMeta, buildReplyQuoteEl, isReplyToMe } from '../utils/render'
+import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta, msgDedupKey, parseReplyFromMeta, buildReplyQuoteEl, isReplyToMe, mergeReplyIntoMeta, REPLY_SNIPPET_MAX, type ReplySnapshot } from '../utils/render'
 
 export const PENDING_TIMEOUT_MS = 8000
 export const PIN_TOLERANCE_PX = 32
@@ -247,6 +247,9 @@ async function init(): Promise<void> {
   // stick survives sequential layout growth (many images loading one by
   // one), where each grower's own gap would otherwise defeat every re-pin.
   let stickToBottom = true
+  // Reply target riding the composer: the quoted message snapshot shown in
+  // the #reply-bar preview and merged into outgoing meta on send.
+  let replyTarget: ReplySnapshot | null = null
   const pill = el<HTMLButtonElement>('scroll-bottom')
   const historyTip = el<HTMLElement>('history-tip')
 
@@ -737,7 +740,7 @@ async function init(): Promise<void> {
     autoGrow()
   }
 
-  function showActionPopover(anchor: HTMLElement, name: string, uid: string): void {
+  function showActionPopover(anchor: HTMLElement, name: string, uid: string, rawMsg = ''): void {
     const existing = document.querySelector('.action')
     if (existing) existing.remove()
 
@@ -758,6 +761,16 @@ async function init(): Promise<void> {
       action.remove()
     })
 
+    const replyLink = document.createElement('a')
+    replyLink.href = 'javascript:;'
+    replyLink.textContent = `回复 ${name}`
+    replyLink.addEventListener('click', (e) => {
+      e.preventDefault()
+      setReplyTarget({ ruid: uid, rname: name, rmsg: rawMsg.substring(0, REPLY_SNIPPET_MAX) })
+      msgInput.focus()
+      action.remove()
+    })
+
     const blockLink = document.createElement('a')
     blockLink.href = 'javascript:;'
     blockLink.textContent = `Block ${name}`
@@ -772,6 +785,7 @@ async function init(): Promise<void> {
     })
 
     action.appendChild(atLink)
+    action.appendChild(replyLink)
     action.appendChild(blockLink)
     document.body.appendChild(action)
 
@@ -829,6 +843,9 @@ async function init(): Promise<void> {
     }
 
     const clientId = genSid()
+    const outgoingMeta = replyTarget
+      ? mergeReplyIntoMeta(serializeOutgoingMeta(userPrefs), replyTarget)
+      : serializeOutgoingMeta(userPrefs)
     const payload = buildMessagePayload(
       {
         uid: userInfo.uid,
@@ -836,7 +853,7 @@ async function init(): Promise<void> {
         msg,
         namecolor: userPrefs.namecolor ?? DEFAULT_NAME_COLOR,
         msgcolor: userPrefs.msgcolor ?? DEFAULT_MSG_COLOR,
-        meta: serializeOutgoingMeta(userPrefs),
+        meta: outgoingMeta,
       },
       clientId,
     )
@@ -852,7 +869,7 @@ async function init(): Promise<void> {
       namecolor: userPrefs.namecolor,
       msgcolor: userPrefs.msgcolor,
       highlight: false,
-      meta: serializeOutgoingMeta(userPrefs),
+      meta: outgoingMeta,
     }, 'after', true)
 
     // Grab the just-appended node (last child of msgList).
@@ -878,6 +895,7 @@ async function init(): Promise<void> {
     }
 
     msgInput.value = ''
+    setReplyTarget(null)
     msgInput.style.height = ''
     autoGrow()
     // Fallback: make sure the composer's own send lands the view at the bottom
@@ -1176,7 +1194,114 @@ async function init(): Promise<void> {
     })
   }, true)
 
+  // ── Reply menu entries: desktop right-click + touch long-press ─────────
+  let lastLongPressAt = 0
+  let suppressNextClick = false
+
+  function openMenuForMessage(msgNode: HTMLElement): void {
+    const uid = msgNode.dataset.uid
+    const nicknameEl = msgNode.querySelector('.nickname') as HTMLElement | null
+    const name = nicknameEl?.dataset.name
+    if (!uid || !nicknameEl || !name) return
+    const raw = (msgNode.querySelector('.msg') as HTMLElement | null)?.dataset.raw ?? ''
+    showActionPopover(nicknameEl, name, uid, raw)
+  }
+
+  msgList.addEventListener('contextmenu', (e) => {
+    const target = e.target as HTMLElement
+    if (target.closest('.md-img') || target.closest('a')) return // keep native menu on images/links
+    const msgNode = target.closest('.message') as HTMLElement | null
+    if (!msgNode || !msgNode.dataset.uid) return // sys messages are not replyable
+    e.preventDefault()
+    if (Date.now() - lastLongPressAt < 600) return // long-press timer already opened it
+    openMenuForMessage(msgNode)
+  })
+
+  // iOS Safari fires no contextmenu on long-press — timer covers it.
+  let lpTimer: number | null = null
+  let lpStartX = 0
+  let lpStartY = 0
+  msgList.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return
+    const touch = e.touches[0]
+    const target = touch.target as HTMLElement
+    if (target.closest('.md-img') || target.closest('a')) return
+    const msgNode = target.closest('.message') as HTMLElement | null
+    if (!msgNode || !msgNode.dataset.uid) return
+    lpStartX = touch.clientX
+    lpStartY = touch.clientY
+    lpTimer = window.setTimeout(() => {
+      lpTimer = null
+      lastLongPressAt = Date.now()
+      suppressNextClick = true // synthesized click after touchend must not dismiss/reopen
+      openMenuForMessage(msgNode)
+    }, 500)
+  }, { passive: true })
+
+  const cancelLongPress = (e: TouchEvent) => {
+    if (lpTimer === null) return
+    if (e.type === 'touchmove' && e.touches[0]) {
+      const dx = e.touches[0].clientX - lpStartX
+      const dy = e.touches[0].clientY - lpStartY
+      if (dx * dx + dy * dy < 100) return // <10px drift still counts as a press
+    }
+    window.clearTimeout(lpTimer)
+    lpTimer = null
+  }
+  msgList.addEventListener('touchmove', cancelLongPress, { passive: true })
+  msgList.addEventListener('touchend', cancelLongPress, { passive: true })
+  msgList.addEventListener('touchcancel', cancelLongPress, { passive: true })
+
+  document.addEventListener('click', (e) => {
+    if (!suppressNextClick) return
+    suppressNextClick = false
+    e.preventDefault()
+    e.stopPropagation()
+  }, true)
+
   sendBtn.addEventListener('click', send)
+
+  // ── Reply composer preview bar (#reply-bar) ──────────────────────────
+  const replyBar = document.createElement('div')
+  replyBar.id = 'reply-bar'
+  replyBar.className = 'reply-bar'
+  replyBar.hidden = true
+  const replyBarText = document.createElement('span')
+  replyBarText.className = 'reply-bar-text'
+  const replyBarCancel = document.createElement('a')
+  replyBarCancel.href = 'javascript:;'
+  replyBarCancel.className = 'reply-bar-cancel'
+  replyBarCancel.textContent = '取消'
+  replyBar.appendChild(replyBarText)
+  replyBar.appendChild(replyBarCancel)
+  const composer = document.querySelector('.composer')
+  const msgInputWrap = document.querySelector('.msg-input-wrap')
+  if (composer && msgInputWrap) composer.insertBefore(replyBar, msgInputWrap)
+
+  function renderReplyBar(): void {
+    if (!replyTarget) {
+      replyBar.hidden = true
+      replyBarText.textContent = ''
+      return
+    }
+    replyBarText.textContent = `回复 ${replyTarget.rname}：${replyTarget.rmsg}`
+    replyBar.hidden = false
+  }
+
+  function setReplyTarget(reply: ReplySnapshot | null): void {
+    replyTarget = reply
+    renderReplyBar()
+  }
+
+  replyBarCancel.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setReplyTarget(null)
+  })
+
+  msgInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && replyTarget) setReplyTarget(null)
+  })
 
   msgInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1222,7 +1347,9 @@ async function init(): Promise<void> {
     if (!target) return
     const uid = target.dataset.uid
     const name = target.dataset.name
-    if (uid && name) showActionPopover(target, name, uid)
+    if (!uid || !name) return
+    const raw = (target.closest('.message')?.querySelector('.msg') as HTMLElement | null)?.dataset.raw ?? ''
+    showActionPopover(target, name, uid, raw)
   })
 
   // ── Settings modal (gear → modal) ──────────────────────────────────────
