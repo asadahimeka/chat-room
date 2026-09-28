@@ -241,7 +241,11 @@ body {
     "header header"
     "sidebar messages"
     "composer composer";
-  grid-template-columns: var(--sidebar-w) 1fr;
+  /* minmax(0, 1fr): a bare 1fr track's auto minimum is min-content, so a
+     long nowrap quote snippet (or any unwrappable content) would stretch the
+     column past the viewport. minmax(0, …) lets the track shrink; content
+     then contains itself via the bubble/message max-width chain. */
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   grid-template-rows: var(--header-h) 1fr auto;
   height: 100dvh;
   max-width: 1240px;
@@ -1037,7 +1041,7 @@ body {
       "header"
       "messages"
       "composer";
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: var(--header-h) 1fr auto;
   }
 
