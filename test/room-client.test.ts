@@ -32,6 +32,9 @@ import {
   REPLY_SNIPPET_MAX,
   msgDedupKey,
   mergeReplyIntoMeta,
+  parseReplyFromMeta,
+  isReplyToMe,
+  buildReplyQuoteEl,
 } from '../src/utils/render'
 import { parseMarkdown } from '../src/utils/markdown'
 
@@ -602,5 +605,44 @@ describe('mergeReplyIntoMeta', () => {
 
   it('exposes REPLY_SNIPPET_MAX as 80', () => {
     expect(REPLY_SNIPPET_MAX).toBe(80)
+  })
+})
+
+// ── Reply: quote bar renderer ─────────────────────────────────────────
+describe('parseReplyFromMeta', () => {
+  it('parses a valid reply snapshot', () => {
+    expect(parseReplyFromMeta('{"reply":{"ruid":"u2","rname":"Alice","rmsg":"q"}}')).toEqual({
+      ruid: 'u2', rname: 'Alice', rmsg: 'q',
+    })
+  })
+
+  it('returns null for missing, malformed, or partial reply', () => {
+    expect(parseReplyFromMeta(undefined)).toBeNull()
+    expect(parseReplyFromMeta('{"bold":true}')).toBeNull()
+    expect(parseReplyFromMeta('{"reply":{"ruid":"u2"}}')).toBeNull()
+    expect(parseReplyFromMeta('{"reply":"nope"}')).toBeNull()
+    expect(parseReplyFromMeta('{"reply":{"ruid":"","rname":"A","rmsg":"q"}}')).toBeNull()
+  })
+})
+
+describe('buildReplyQuoteEl', () => {
+  const reply = { ruid: 'u2', rname: 'Alice', rmsg: 'hello' }
+
+  it('renders name + snippet via textContent only', () => {
+    const el = buildReplyQuoteEl(reply, 'u1', false)
+    expect(el.className).toBe('reply-quote')
+    expect(el.textContent).toBe('Alicehello')
+  })
+
+  it('marks reply-to-me when ruid matches self uid', () => {
+    expect(buildReplyQuoteEl(reply, 'u2', false).className).toBe('reply-quote reply-to-me')
+    expect(isReplyToMe(reply, 'u2')).toBe(true)
+    expect(isReplyToMe(reply, undefined)).toBe(false)
+  })
+
+  it('shows blocked placeholder without leaking content', () => {
+    const el = buildReplyQuoteEl(reply, 'u1', true)
+    expect(el.className).toBe('reply-quote reply-blocked')
+    expect(el.textContent).toBe('已屏蔽的消息')
   })
 })

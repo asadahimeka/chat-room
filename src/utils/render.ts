@@ -184,3 +184,49 @@ export function safeParseMeta(raw: string | null | undefined): Record<string, un
     return null
   }
 }
+
+/** Extracts a validated reply snapshot from a meta JSON string, or null. */
+export function parseReplyFromMeta(raw: string | null | undefined): ReplySnapshot | null {
+  const meta = safeParseMeta(raw)
+  const reply = meta?.reply
+  if (!reply || typeof reply !== 'object' || Array.isArray(reply)) return null
+  const r = reply as Record<string, unknown>
+  if (typeof r.ruid !== 'string' || typeof r.rname !== 'string' || typeof r.rmsg !== 'string') return null
+  if (!r.ruid || !r.rname || !r.rmsg) return null
+  return { ruid: r.ruid, rname: r.rname, rmsg: r.rmsg }
+}
+
+/** True when the quoted author is the local user. */
+export function isReplyToMe(reply: ReplySnapshot, selfUid: string | null | undefined): boolean {
+  return !!selfUid && reply.ruid === selfUid
+}
+
+/**
+ * Builds the in-bubble quote bar. The caller MUST pass rname/rmsg already
+ * unescaped (unescapeEntities) — this builder only assigns textContent.
+ */
+export function buildReplyQuoteEl(
+  reply: ReplySnapshot,
+  selfUid: string | null | undefined,
+  blocked: boolean,
+): HTMLElement {
+  const bar = document.createElement('div')
+  if (blocked) {
+    bar.className = 'reply-quote reply-blocked'
+    const text = document.createElement('span')
+    text.className = 'reply-text'
+    text.textContent = '已屏蔽的消息'
+    bar.appendChild(text)
+    return bar
+  }
+  bar.className = 'reply-quote' + (isReplyToMe(reply, selfUid) ? ' reply-to-me' : '')
+  const name = document.createElement('span')
+  name.className = 'reply-name'
+  name.textContent = reply.rname
+  const text = document.createElement('span')
+  text.className = 'reply-text'
+  text.textContent = reply.rmsg
+  bar.appendChild(name)
+  bar.appendChild(text)
+  return bar
+}
