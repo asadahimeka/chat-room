@@ -782,6 +782,13 @@ body {
   flex-wrap: wrap;
 }
 
+/* JS toggles the `hidden` attribute on #reply-bar; the author display value
+   above defeats the UA [hidden] rule, so re-assert it here (same treatment
+   as .emoji-panel/.modal-backdrop/.composer-btn). */
+.reply-bar[hidden] {
+  display: none;
+}
+
 .composer input[type="text"],
 .composer textarea {
   font-family: var(--font-sans);
