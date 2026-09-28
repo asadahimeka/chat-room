@@ -101,6 +101,21 @@ export function genSid(): string {
   return Math.random().toString(36).substr(2, 7)
 }
 
+/**
+ * Decides which identity cookies to write on init: uid is always rewritten
+ * (upgrading legacy 7-day cookies to permanent); name is only written when
+ * the browser has none yet, so a manually chosen name is never clobbered.
+ */
+export function planIdentityCookies(
+  existingName: string,
+  user: { uid: string; name?: string },
+): { uid: string; name?: string } {
+  return {
+    uid: user.uid,
+    name: existingName ? undefined : user.name || undefined,
+  }
+}
+
 export function isBlocked(uid: string, blockList: string[]): boolean {
   return blockList.indexOf(uid) !== -1
 }
@@ -200,7 +215,7 @@ function getCookie(name: string): string {
 
 function setCookie(name: string, value: string): void {
   const date = new Date()
-  date.setTime(date.getTime() + 7 * 24 * 60 * 60 * 1000)
+  date.setTime(date.getTime() + 3650 * 24 * 60 * 60 * 1000) // "permanent": 10y, refreshed on each init/name edit
   document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${date.toUTCString()}`
 }
 
@@ -933,7 +948,9 @@ async function init(): Promise<void> {
           const user = payload.data as JoinedUser
           if (userInfo) return
           userInfo = user
-          if (!getCookie('uid')) setCookie('uid', user.uid)
+          const identity = planIdentityCookies(getCookie('name'), user)
+          setCookie('uid', identity.uid)
+          if (identity.name) setCookie('name', identity.name)
           nameInput.value = user.name || user.uid
           // History rendered before init had no identity — tag own bubbles now.
           msgList.querySelectorAll<HTMLElement>('.message[data-uid]').forEach((n) => {

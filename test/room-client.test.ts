@@ -23,6 +23,7 @@ import {
   shouldHidePill,
   buildMessagePayload,
   shouldAccumulateUnread,
+  planIdentityCookies,
 } from '../src/views/room.client'
 import {
   applyMetaClasses,
@@ -644,5 +645,20 @@ describe('buildReplyQuoteEl', () => {
     const el = buildReplyQuoteEl(reply, 'u1', true)
     expect(el.className).toBe('reply-quote reply-blocked')
     expect(el.textContent).toBe('已屏蔽的消息')
+  })
+})
+
+// ── Task 7: identity cookie planning ──────────────────────────────────
+describe('planIdentityCookies', () => {
+  it('always rewrites uid and adopts the server name when no name cookie exists', () => {
+    expect(planIdentityCookies('', { uid: 'u1', name: 'user_abcde' })).toEqual({ uid: 'u1', name: 'user_abcde' })
+  })
+
+  it('never overwrites an existing name cookie', () => {
+    expect(planIdentityCookies('Alice', { uid: 'u1', name: 'user_abcde' })).toEqual({ uid: 'u1', name: undefined })
+  })
+
+  it('skips the name write when the server name is empty', () => {
+    expect(planIdentityCookies('', { uid: 'u1' })).toEqual({ uid: 'u1', name: undefined })
   })
 })
