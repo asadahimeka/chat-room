@@ -843,6 +843,8 @@ async function init(): Promise<void> {
       if (!msgInput.value.trim()) {
         msgInput.value = rawMsg
       }
+      const stashedReply = parseReplyFromMeta(entry.node.dataset.replyMeta)
+      setReplyTarget(stashedReply)
       send()
     }, { once: true })
     showToast('发送失败，点击消息可重试')
@@ -892,6 +894,7 @@ async function init(): Promise<void> {
     if (pendingNode) {
       pendingNode.classList.add('pending')
       pendingNode.dataset.clientId = clientId
+      if (replyTarget) pendingNode.dataset.replyMeta = mergeReplyIntoMeta(undefined, replyTarget)
     }
 
     // Start timeout timer — if no echo within 8s, mark as failed.
@@ -988,7 +991,7 @@ async function init(): Promise<void> {
             pendingMap.delete(m.clientId)
             clearTimeout(entry.timer)
             entry.node.classList.remove('pending')
-            // Register server-side dedup key (uid|ts|msg) with integer ts,
+            // Register server-side dedup key (uid|ts|msg[|r:ruid]) with integer ts,
             // matching the key format used by appendMsg.
             const serverKey = msgDedupKey(m.uid, m.ts, m.msg, m.meta)
             renderedMsgKeys.add(serverKey)
@@ -1230,6 +1233,10 @@ async function init(): Promise<void> {
     const msgNode = target.closest('.message') as HTMLElement | null
     if (!msgNode || !msgNode.dataset.uid) return // sys messages are not replyable
     e.preventDefault()
+    if (lpTimer !== null) {
+      window.clearTimeout(lpTimer)
+      lpTimer = null
+    }
     if (Date.now() - lastLongPressAt < 600) return // long-press timer already opened it
     openMenuForMessage(msgNode)
   })
