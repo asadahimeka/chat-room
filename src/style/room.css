@@ -654,6 +654,56 @@ body {
     var(--shadow);
 }
 
+/* ── Reply quote bar (inside bubble) ────────────────────────────── */
+.message .reply-quote {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-faint);
+  border-left: 2px solid var(--border);
+  padding: 2px 8px;
+  margin-bottom: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  min-width: 0;
+}
+
+.message .reply-quote .reply-name {
+  flex: none;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.message .reply-quote .reply-text {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.message .reply-quote.reply-to-me .reply-name {
+  font-weight: 700;
+}
+
+.message .reply-quote.reply-blocked {
+  font-style: italic;
+}
+
+/* Reply addressed to me — weaker cousin of .highlight */
+.message.reply-to-me .bubble {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent),
+    var(--shadow);
+}
+
+/* Long-press: suppress the iOS callout so the custom menu reads clearly */
+.message {
+  -webkit-touch-callout: none;
+}
+
 /* System messages — centered pill */
 .sys-msg {
   align-self: center;
@@ -691,6 +741,45 @@ body {
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
   backdrop-filter: blur(8px);
+}
+
+/* ── Composer reply preview bar ─────────────────────────────────── */
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.reply-bar .reply-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.reply-bar .reply-bar-cancel {
+  flex: none;
+  cursor: pointer;
+  color: var(--accent);
+}
+
+/* Full row above the input line: the tray is flex — the mobile layout
+   already wraps; the desktop tray is nowrap, so wrap it only while the
+   bar is visible and order the bar first so it owns that row alone. */
+.reply-bar {
+  flex-basis: 100%;
+  order: -1;
+}
+
+.composer:has(> .reply-bar:not([hidden])) {
+  flex-wrap: wrap;
 }
 
 .composer input[type="text"],
