@@ -156,29 +156,29 @@ describe('unescapeEntities', () => {
 
 describe('uploadErrorMsg', () => {
   it('maps 400 to the profile-required message', () => {
-    expect(uploadErrorMsg(400)).toBe('Profile required')
+    expect(uploadErrorMsg(400)).toBe('上传参数缺失')
   })
 
   it('maps 413 to the size-limit message', () => {
-    expect(uploadErrorMsg(413)).toBe('Image exceeds the size limit')
+    expect(uploadErrorMsg(413)).toBe('图片超过大小限制')
   })
 
   it('maps 415 to the unsupported-type message', () => {
-    expect(uploadErrorMsg(415)).toBe('Unsupported image type')
+    expect(uploadErrorMsg(415)).toBe('不支持的图片类型')
   })
 
   it('maps 429 to the quota message', () => {
-    expect(uploadErrorMsg(429)).toBe('Daily upload quota exceeded')
+    expect(uploadErrorMsg(429)).toBe('今日上传配额已用完')
   })
 
   it('maps 503 to the storage message', () => {
-    expect(uploadErrorMsg(503)).toBe('Storage unavailable')
+    expect(uploadErrorMsg(503)).toBe('存储服务不可用')
   })
 
   it('falls back to a generic message for unknown codes', () => {
-    expect(uploadErrorMsg(0)).toBe('Upload failed')
-    expect(uploadErrorMsg(500)).toBe('Upload failed')
-    expect(uploadErrorMsg(999)).toBe('Upload failed')
+    expect(uploadErrorMsg(0)).toBe('上传失败')
+    expect(uploadErrorMsg(500)).toBe('上传失败')
+    expect(uploadErrorMsg(999)).toBe('上传失败')
   })
 })
 

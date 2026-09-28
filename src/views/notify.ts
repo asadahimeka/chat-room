@@ -42,14 +42,14 @@ export class Notify {
     if (this.focus) {
       const toast = document.getElementById('toast')
       if (toast) {
-        toast.textContent = 'Someone mentions you'
+        toast.textContent = '有人提到了你'
         toast.classList.add('show')
         window.setTimeout(() => {
           toast.classList.remove('show')
         }, 2200)
       }
     } else if (window.Notification && Notification.permission === 'granted') {
-      new Notification(`${info.to}, Someone mentions you`, {
+      new Notification(`${info.to}，有人提到了你`, {
         tag: 'mention-notify',
         body: `${info.from}::${info.roomId}: ${info.msg}`,
         icon: '/favicon.ico',

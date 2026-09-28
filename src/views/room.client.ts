@@ -145,17 +145,17 @@ export function unescapeEntities(s: string): string {
 export function uploadErrorMsg(code: number): string {
   switch (code) {
     case 400:
-      return 'Profile required'
+      return '上传参数缺失'
     case 413:
-      return 'Image exceeds the size limit'
+      return '图片超过大小限制'
     case 415:
-      return 'Unsupported image type'
+      return '不支持的图片类型'
     case 429:
-      return 'Daily upload quota exceeded'
+      return '今日上传配额已用完'
     case 503:
-      return 'Storage unavailable'
+      return '存储服务不可用'
     default:
-      return 'Upload failed'
+      return '上传失败'
   }
 }
 
@@ -788,10 +788,10 @@ async function init(): Promise<void> {
 
     const blockLink = document.createElement('a')
     blockLink.href = 'javascript:;'
-    blockLink.textContent = `Block ${name}`
+    blockLink.textContent = `屏蔽 ${name}`
     blockLink.addEventListener('click', (e) => {
       e.preventDefault()
-      if (confirm(`Are you sure to block ${name}?`)) {
+      if (confirm(`确定屏蔽 ${name} 吗？`)) {
         blockList.push(uid)
         localStorage.setItem('blockList', JSON.stringify(blockList))
         msgList.querySelectorAll(`.message[data-uid="${uid}"]`).forEach((n) => n.remove())
@@ -922,16 +922,16 @@ async function init(): Promise<void> {
   }
 
   function connect(): void {
-    setStatus('connecting...', 'connecting')
+    setStatus('连接中…', 'connecting')
     const sid = genSid()
     const ws = new WebSocket(`${location.protocol == 'https:' ? 'wss' : 'ws'}://${location.host}/ws?roomId=${encodeURIComponent(roomId)}&t=${sid}`)
     socket = ws
 
     ws.onopen = () => {
       reconnectAttempts = 0
-      setStatus('connected.', 'connected')
+      setStatus('已连接', 'connected')
       notify.init()
-      appendMsg({ type: 'sys', msg: `Welcome to ${title ? `${title} #${roomId}#` : roomId}!` })
+      appendMsg({ type: 'sys', msg: `欢迎来到 ${title ? `${title} #${roomId}#` : roomId}！` })
     }
 
     ws.onmessage = (event) => {
@@ -1039,7 +1039,7 @@ async function init(): Promise<void> {
     }
 
     ws.onclose = () => {
-      setStatus('disconnected.', 'disconnected')
+      setStatus('连接已断开', 'disconnected')
       socket = null
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
       reconnectAttempts++
@@ -1068,7 +1068,7 @@ async function init(): Promise<void> {
     fetch(`/room/@${roomId}/record?limit=${limit}`)
       .then((r) => r.json())
       .then((data: RecordRow[]) => {
-        setStatus('connecting...', 'connecting')
+        setStatus('连接中…', 'connecting')
         const reversed = [...data].reverse()
         for (const m of reversed) {
           appendMsg({
@@ -1468,7 +1468,7 @@ async function init(): Promise<void> {
     let timer: number | null = null
     const reset = () => {
       btn.classList.remove('confirm')
-      btn.textContent = 'Clear'
+      btn.textContent = '清除'
       btn.disabled = false
       if (timer !== null) {
         window.clearTimeout(timer)
@@ -1482,18 +1482,18 @@ async function init(): Promise<void> {
           timer = null
         }
         btn.disabled = true
-        btn.textContent = 'Clearing…'
+        btn.textContent = '清除中…'
         try {
           await action()
-          showToast(`${label} cleared`)
+          showToast(`${label}已清除`)
         } catch (e) {
           console.log(e)
-          showToast(`Failed to clear ${label.toLowerCase()}`)
+          showToast(`${label}清除失败`)
         }
         reset()
       } else {
         btn.classList.add('confirm')
-        btn.textContent = 'Confirm?'
+        btn.textContent = '确认？'
         timer = window.setTimeout(reset, CONFIRM_RESET_MS)
       }
     })
@@ -1503,7 +1503,7 @@ async function init(): Promise<void> {
   const clearHistoryBtn = el<HTMLButtonElement>('clear-history')
   const clearImagesBtn = el<HTMLButtonElement>('clear-images')
 
-  setupCacheButton(clearSettingsBtn, 'Settings', async () => {
+  setupCacheButton(clearSettingsBtn, '设置与屏蔽列表', async () => {
     try {
       localStorage.clear()
     } catch (e) {
@@ -1525,11 +1525,11 @@ async function init(): Promise<void> {
     }
   })
 
-  setupCacheButton(clearHistoryBtn, 'History', async () => {
+  setupCacheButton(clearHistoryBtn, '聊天历史缓存', async () => {
     await clearHistoryCache()
   })
 
-  setupCacheButton(clearImagesBtn, 'Images', async () => {
+  setupCacheButton(clearImagesBtn, '图片缓存', async () => {
     if (!('caches' in window)) return
     const keys = await caches.keys()
     for (const key of keys) {
@@ -1617,7 +1617,7 @@ async function init(): Promise<void> {
     if (emojiPacks.length === 0) {
       const hint = document.createElement('span')
       hint.className = 'emoji-hint'
-      hint.textContent = 'loading…'
+      hint.textContent = '加载中…'
       emojiPanel.appendChild(hint)
       return
     }
@@ -1847,7 +1847,7 @@ async function init(): Promise<void> {
       })
   })
 
-  setStatus('get record...', 'connecting')
+  setStatus('正在获取历史记录…', 'connecting')
   fetchRecord()
   refreshUploadVisibility()
 
