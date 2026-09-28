@@ -29,6 +29,9 @@ import {
   buildAvatarEl,
   serializeOutgoingMeta,
   safeParseMeta,
+  REPLY_SNIPPET_MAX,
+  msgDedupKey,
+  mergeReplyIntoMeta,
 } from '../src/utils/render'
 import { parseMarkdown } from '../src/utils/markdown'
 
@@ -553,5 +556,51 @@ describe('historyTipText', () => {
     expect(historyTipText('error')).toBe('加载失败，点击重试')
     expect(historyTipText('end')).toBe('没有更多历史了')
     expect(historyTipText('hidden')).toBe('')
+  })
+})
+
+// ── Reply: dedup key dimension + meta merge ───────────────────────────
+describe('msgDedupKey', () => {
+  it('keeps legacy bare key when meta has no reply', () => {
+    expect(msgDedupKey('u1', 123, 'hi', undefined)).toBe('u1|123|hi')
+    expect(msgDedupKey('u1', 123, 'hi', '{"bold":true}')).toBe('u1|123|hi')
+  })
+
+  it('appends reply dimension when meta carries a reply', () => {
+    expect(msgDedupKey('u1', 123, 'hi', '{"reply":{"ruid":"u2","rname":"A","rmsg":"q"}}')).toBe('u1|123|hi|r:u2')
+  })
+
+  it('tolerates malformed meta', () => {
+    expect(msgDedupKey('u1', 123, 'hi', '{oops')).toBe('u1|123|hi')
+  })
+
+  it('treats undefined parts as empty like the legacy template', () => {
+    expect(msgDedupKey(undefined, undefined, undefined, undefined)).toBe('||')
+  })
+})
+
+describe('mergeReplyIntoMeta', () => {
+  const reply = { ruid: 'u2', rname: 'Alice', rmsg: 'q' }
+
+  it('merges reply into existing style meta', () => {
+    expect(JSON.parse(mergeReplyIntoMeta('{"bold":true}', reply))).toEqual({
+      bold: true,
+      reply,
+    })
+  })
+
+  it('creates meta from scratch when absent or malformed', () => {
+    expect(JSON.parse(mergeReplyIntoMeta(undefined, reply))).toEqual({ reply })
+    const fromBad = JSON.parse(mergeReplyIntoMeta('{oops', reply)) as { reply: typeof reply }
+    expect(fromBad.reply.ruid).toBe('u2')
+  })
+
+  it('overwrites a previous reply', () => {
+    const old = JSON.stringify({ reply: { ruid: 'x', rname: 'X', rmsg: 'x' } })
+    expect(JSON.parse(mergeReplyIntoMeta(old, reply))).toEqual({ reply })
+  })
+
+  it('exposes REPLY_SNIPPET_MAX as 80', () => {
+    expect(REPLY_SNIPPET_MAX).toBe(80)
   })
 })

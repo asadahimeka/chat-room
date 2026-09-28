@@ -135,6 +135,41 @@ export function serializeOutgoingMeta(prefs: {
 }
 
 /**
+ * Client-side reply quote snapshot riding inside the meta JSON string.
+ */
+export type ReplySnapshot = { ruid: string; rname: string; rmsg: string }
+
+/** Client pre-truncation length for the quoted snippet (server caps at 100). */
+export const REPLY_SNIPPET_MAX = 80
+
+/**
+ * De-dup key with a reply dimension: a bare text and its reply variant sent in
+ * the same second must NOT swallow each other. Meta missing/malformed keeps
+ * the legacy `uid|ts|msg` shape.
+ */
+export function msgDedupKey(
+  uid: string | undefined,
+  ts: number | string | undefined,
+  msg: string | undefined,
+  meta?: string | null,
+): string {
+  const key = `${uid ?? ''}|${ts ?? ''}|${msg ?? ''}`
+  const parsed = safeParseMeta(meta)
+  const reply = parsed?.reply
+  if (reply && typeof reply === 'object' && !Array.isArray(reply)
+    && typeof (reply as Record<string, unknown>).ruid === 'string') {
+    return `${key}|r:${(reply as Record<string, string>).ruid}`
+  }
+  return key
+}
+
+/** Merges a reply snapshot into the outgoing meta JSON string. */
+export function mergeReplyIntoMeta(metaJson: string | undefined, reply: ReplySnapshot): string {
+  const base = safeParseMeta(metaJson) ?? {}
+  return JSON.stringify({ ...base, reply })
+}
+
+/**
  * Local JSON.parse for the client bundle. Deliberately NOT importing
  * parseMsgMeta from src/db — that module pulls in bun:sqlite, which would
  * break the browser bundle.
