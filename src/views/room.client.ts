@@ -755,7 +755,7 @@ async function init(): Promise<void> {
     autoGrow()
   }
 
-  function showActionPopover(anchor: HTMLElement, name: string, uid: string, rawMsg = ''): void {
+  function showActionPopover(anchor: HTMLElement, name: string, uid: string, rawMsg = '', pos?: { x: number; y: number }): void {
     const existing = document.querySelector('.action')
     if (existing) existing.remove()
 
@@ -803,6 +803,15 @@ async function init(): Promise<void> {
     action.appendChild(replyLink)
     action.appendChild(blockLink)
     document.body.appendChild(action)
+
+    // Event-coordinate positioning (right-click / long-press): the nickname
+    // anchor may be display:none (threaded view) — its rect would be all
+    // zeros. Appended above, so offsetWidth/offsetHeight are measurable;
+    // clamp the menu inside the viewport.
+    if (pos) {
+      action.style.top = `${Math.max(8, Math.min(pos.y, window.innerHeight - action.offsetHeight - 8))}px`
+      action.style.left = `${Math.max(8, Math.min(pos.x, window.innerWidth - action.offsetWidth - 8))}px`
+    }
 
     const dismiss = () => action.remove()
     document.addEventListener('click', dismiss, { once: true })
@@ -1218,13 +1227,13 @@ async function init(): Promise<void> {
   let lastLongPressAt = 0
   let suppressNextClick = false
 
-  function openMenuForMessage(msgNode: HTMLElement): void {
+  function openMenuForMessage(msgNode: HTMLElement, pos?: { x: number; y: number }): void {
     const uid = msgNode.dataset.uid
     const nicknameEl = msgNode.querySelector('.nickname') as HTMLElement | null
     const name = nicknameEl?.dataset.name
     if (!uid || !nicknameEl || !name) return
     const raw = (msgNode.querySelector('.msg') as HTMLElement | null)?.dataset.raw ?? ''
-    showActionPopover(nicknameEl, name, uid, raw)
+    showActionPopover(nicknameEl, name, uid, raw, pos)
   }
 
   msgList.addEventListener('contextmenu', (e) => {
@@ -1238,7 +1247,7 @@ async function init(): Promise<void> {
       lpTimer = null
     }
     if (Date.now() - lastLongPressAt < 600) return // long-press timer already opened it
-    openMenuForMessage(msgNode)
+    openMenuForMessage(msgNode, { x: e.clientX, y: e.clientY })
   })
 
   // iOS Safari fires no contextmenu on long-press — timer covers it.
@@ -1258,7 +1267,7 @@ async function init(): Promise<void> {
       lpTimer = null
       lastLongPressAt = Date.now()
       suppressNextClick = true // synthesized click after touchend must not dismiss/reopen
-      openMenuForMessage(msgNode)
+      openMenuForMessage(msgNode, { x: lpStartX, y: lpStartY })
     }, 500)
   }, { passive: true })
 
@@ -1310,6 +1319,12 @@ async function init(): Promise<void> {
     }
     replyBarText.textContent = `回复 ${replyTarget.rname}：${replyTarget.rmsg}`
     replyBar.hidden = false
+    // The bar grows the composer; keep the pinned-to-bottom view pinned.
+    if (stickToBottom) {
+      requestAnimationFrame(() => {
+        msgList.scrollTop = msgList.scrollHeight
+      })
+    }
   }
 
   function setReplyTarget(reply: ReplySnapshot | null): void {

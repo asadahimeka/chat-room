@@ -643,6 +643,16 @@ body {
   max-width: min(100%, 320px);
   max-height: 320px;
 }
+
+/* Markdown code fences render as bare pre > code; pre's default
+   white-space:pre never wraps and blows out the layout (a single long
+   line measured 3522px). Wrap + scroll instead. */
+.message .msg pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .message:has(.msg .md-img) {
   max-width: min(94%, 394px);
 }
@@ -655,6 +665,13 @@ body {
 }
 
 /* ── Reply quote bar (inside bubble) ────────────────────────────── */
+/* .bubble is a flex child of the .message row; without min-width:0 its
+   automatic min-width would take the quote bar's nowrap full-text
+   min-content and overflow the container. */
+.message .bubble {
+  min-width: 0;
+}
+
 .message .reply-quote {
   display: flex;
   align-items: baseline;
@@ -682,6 +699,7 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 1;
 }
 
 .message .reply-quote.reply-to-me .reply-name {
@@ -692,16 +710,18 @@ body {
   font-style: italic;
 }
 
-/* Reply addressed to me — weaker cousin of .highlight */
-.message.reply-to-me .bubble {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent),
-    var(--shadow);
-}
-
 /* Long-press: suppress the iOS callout so the custom menu reads clearly */
 .message {
   -webkit-touch-callout: none;
+}
+
+/* …but the suppression is inherited and would kill the native long-press
+   menu on links and images (the JS handlers exclude those too — dead
+   gesture). Restore the callout inside those elements. */
+.message a,
+.message .md-img,
+.message img {
+  -webkit-touch-callout: default;
 }
 
 /* System messages — centered pill */

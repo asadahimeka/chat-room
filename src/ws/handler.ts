@@ -69,8 +69,8 @@ export function sanitizeMeta(raw: string | undefined): string | undefined {
         const r = value as Record<string, unknown>
         if (typeof r.ruid !== 'string' || typeof r.rname !== 'string' || typeof r.rmsg !== 'string') break
         const ruid = r.ruid.trim().substring(0, 7)
-        const rname = processInput(r.rname, true).substring(0, 32)
-        const rmsg = processInput(r.rmsg, true).substring(0, 100)
+        const rname = processInput(r.rname.trim().substring(0, 32), true)
+        const rmsg = processInput(r.rmsg.trim().substring(0, 100), true)
         if (!ruid || !rname.trim() || !rmsg.trim()) break
         cleaned[key] = { ruid, rname, rmsg }
         break
