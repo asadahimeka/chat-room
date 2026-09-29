@@ -101,6 +101,23 @@ export function genSid(): string {
   return Math.random().toString(36).substr(2, 7)
 }
 
+/** Legacy copy path for non-secure contexts (LAN http) without clipboard API. */
+export function fallbackCopyText(text: string): boolean {
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
+
 /**
  * Decides which identity cookies to write on init: uid is always rewritten
  * (upgrading legacy 7-day cookies to permanent); name is only written when
@@ -786,6 +803,24 @@ async function init(): Promise<void> {
       action.remove()
     })
 
+    const copyLink = document.createElement('a')
+    copyLink.href = 'javascript:;'
+    copyLink.textContent = '复制文本'
+    copyLink.addEventListener('click', (e) => {
+      e.preventDefault()
+      const done = () => showToast('已复制')
+      const fail = () => showToast('复制失败')
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(rawMsg).then(done, () => fallbackCopyText(rawMsg) ? done() : fail())
+      } else {
+        fallbackCopyText(rawMsg) ? done() : fail()
+      }
+      action.remove()
+    })
+
+    const separator = document.createElement('div')
+    separator.className = 'action-separator'
+
     const blockLink = document.createElement('a')
     blockLink.href = 'javascript:;'
     blockLink.textContent = `屏蔽 ${name}`
@@ -801,6 +836,8 @@ async function init(): Promise<void> {
 
     action.appendChild(atLink)
     action.appendChild(replyLink)
+    action.appendChild(copyLink)
+    action.appendChild(separator)
     action.appendChild(blockLink)
     document.body.appendChild(action)
 
