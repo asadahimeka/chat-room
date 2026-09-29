@@ -1269,7 +1269,7 @@ async function init(): Promise<void> {
 
   // ── Reply menu entries: desktop right-click + touch long-press ─────────
   let lastLongPressAt = 0
-  let suppressNextClick = false
+  let suppressClickIn: HTMLElement | null = null // msg node whose synthesized click must be eaten
 
   function openMenuForMessage(msgNode: HTMLElement, pos?: { x: number; y: number }): void {
     const uid = msgNode.dataset.uid
@@ -1310,7 +1310,7 @@ async function init(): Promise<void> {
     lpTimer = window.setTimeout(() => {
       lpTimer = null
       lastLongPressAt = Date.now()
-      suppressNextClick = true // synthesized click after touchend must not dismiss/reopen
+      suppressClickIn = msgNode
       openMenuForMessage(msgNode, { x: lpStartX, y: lpStartY })
     }, 500)
   }, { passive: true })
@@ -1330,8 +1330,10 @@ async function init(): Promise<void> {
   msgList.addEventListener('touchcancel', cancelLongPress, { passive: true })
 
   document.addEventListener('click', (e) => {
-    if (!suppressNextClick) return
-    suppressNextClick = false
+    if (!suppressClickIn) return
+    const inLongPressedMsg = suppressClickIn.contains(e.target as Node)
+    suppressClickIn = null
+    if (!inLongPressedMsg) return // menu taps pass through on the FIRST try
     e.preventDefault()
     e.stopPropagation()
   }, true)

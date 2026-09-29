@@ -736,19 +736,24 @@ body {
   -webkit-touch-callout: default;
 }
 
+/* Inline emoji are text equivalents — they must not open the native
+   image menu. Real shared photos (.md-img) and links keep theirs.
+   Unconditional: specificity 0,2,1 beats the blanket .message img
+   (0,1,1); the property is iOS-only, harmless elsewhere. */
+.message img.emoji {
+  -webkit-touch-callout: none;
+}
+
 /* Touch devices: native long-press selection/callout races the custom menu.
    Message text is copied via the popover's 复制文本 item instead (the
-   Telegram/WhatsApp pattern); pointer:coarse keeps desktop mouse selection. */
-@media (pointer: coarse) {
-  .message {
+   Telegram/WhatsApp pattern); pointer:coarse keeps desktop mouse selection.
+   hover:none also matches Android "desktop mode" where pointer misreports
+   fine; desktop touchscreens (hover:hover) stay selectable. */
+@media (pointer: coarse), (hover: none) {
+  .message,
+  .sys-msg {
     -webkit-user-select: none;
     user-select: none;
-  }
-
-  /* Inline emoji are text equivalents — they must not open the native
-     image menu. Real shared photos (.md-img) and links keep theirs. */
-  .message img.emoji {
-    -webkit-touch-callout: none;
   }
 }
 
