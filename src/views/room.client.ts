@@ -841,6 +841,13 @@ async function init(): Promise<void> {
     action.appendChild(blockLink)
     document.body.appendChild(action)
 
+    // Clamp so a wide menu near the right edge never leaves the viewport
+    // (the cursor-position path clamps itself; the anchor path did not).
+    const maxLeft = window.innerWidth - action.offsetWidth - 8
+    if (action.offsetLeft > maxLeft) {
+      action.style.left = `${Math.max(8, maxLeft)}px`
+    }
+
     // Event-coordinate positioning (right-click / long-press): the nickname
     // anchor may be display:none (threaded view) — its rect would be all
     // zeros. Appended above, so offsetWidth/offsetHeight are measurable;

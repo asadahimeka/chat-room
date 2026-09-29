@@ -678,7 +678,7 @@ body {
 
 .message .reply-quote {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
   font-size: 12px;
   line-height: 1.4;
@@ -695,13 +695,21 @@ body {
   flex: none;
   font-weight: 600;
   color: var(--accent);
-}
-
-.message .reply-quote .reply-text {
-  display: block;
+  max-width: 40%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.message .reply-quote .reply-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   min-width: 0;
   flex: 1;
 }
