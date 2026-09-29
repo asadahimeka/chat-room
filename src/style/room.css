@@ -728,6 +728,22 @@ body {
   -webkit-touch-callout: default;
 }
 
+/* Touch devices: native long-press selection/callout races the custom menu.
+   Message text is copied via the popover's 复制文本 item instead (the
+   Telegram/WhatsApp pattern); pointer:coarse keeps desktop mouse selection. */
+@media (pointer: coarse) {
+  .message {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Inline emoji are text equivalents — they must not open the native
+     image menu. Real shared photos (.md-img) and links keep theirs. */
+  .message img.emoji {
+    -webkit-touch-callout: none;
+  }
+}
+
 /* System messages — centered pill */
 .sys-msg {
   align-self: center;
@@ -800,6 +816,10 @@ body {
 .reply-bar {
   flex-basis: 100%;
   order: -1;
+  /* Without this the flex automatic minimum resolves to the nowrap snippet's
+     min-content (~1150px), blowing the bar past narrow/mobile composers;
+     the text's own min-width:0 + ellipsis then contains the content. */
+  min-width: 0;
 }
 
 .composer:has(> .reply-bar:not([hidden])) {
