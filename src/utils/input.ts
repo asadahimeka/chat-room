@@ -39,5 +39,13 @@ export function sanitizeMsg(value: string): string {
 }
 
 export function genGuestName(): string {
-  return `user_${Math.random().toString(36).substr(2, 5)}`
+  // First slug char is always a letter so the avatar monogram (first char
+  // uppercased) is never a digit; the remaining 4 chars are base36.
+  const letters = 'abcdefghijklmnopqrstuvwxyz'
+  const first = letters[Math.floor(Math.random() * letters.length)]
+  let rest = ''
+  while (rest.length < 4) {
+    rest += Math.random().toString(36).slice(2)
+  }
+  return `user_${first}${rest.slice(0, 4)}`
 }

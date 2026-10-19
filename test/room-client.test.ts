@@ -40,11 +40,11 @@ import {
 import { parseMarkdown } from '../src/utils/markdown'
 
 describe('formatTime', () => {
-  it('formats a unix-seconds timestamp as a locale string', () => {
-    const ts = 1600000000
-    const out = formatTime(ts)
-    expect(typeof out).toBe('string')
-    expect(out.length).toBeGreaterThan(0)
+  it('formats a unix-seconds timestamp as 24h HH:mm', () => {
+    const t = (h: number, m: number) => new Date(2026, 9, 19, h, m).getTime() / 1000
+    expect(formatTime(t(8, 5))).toBe('08:05')
+    expect(formatTime(t(0, 0))).toBe('00:00')
+    expect(formatTime(t(23, 59))).toBe('23:59')
   })
 
   it('is deterministic for the same timestamp', () => {

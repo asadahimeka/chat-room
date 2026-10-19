@@ -448,7 +448,10 @@ body {
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  /* Base rhythm: 2px is the within-thread gap; separation between groups
+     comes from .message margin-top (8px) so the two scales stay tunable
+     independently (Telegram: ~2px inside a run, ~10px between runs). */
+  gap: 2px;
   /* Breathing room under the newest message so it never sticks to the edge */
   padding-bottom: 20px;
 }
@@ -459,7 +462,9 @@ body {
   align-items: flex-start;
   gap: 10px;
   max-width: min(82%, 680px);
-  margin-top: 2px;
+  /* With the 2px list gap this opens a ~10px break between sender groups;
+     .threaded continuations zero it out (see below). */
+  margin-top: 8px;
   animation: msg-in var(--dur-slow) var(--ease-out);
 }
 
@@ -540,38 +545,54 @@ body {
   display: none;
 }
 
-/* Message meta row — shown only on the first message of a thread */
-.message .meta {
+/* Nickname row — name on the left, uid on the right (Telegram style).
+   .nickname keeps its dataset.uid/name hooks for the reply menu/@mentions.
+   Hierarchy: the name is content (sans, 12.5px, bold, user color), the uid
+   is metadata — mono, down at 10.5px in the faintest ink, same size as the
+   bubble timestamp so both meta layers share one voice. */
+.message .nickname {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 3px;
-  font-size: 12px;
-}
-
-.message .nickname {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--accent);
+  margin-bottom: 2px;
   cursor: pointer;
 }
 
 .message .name {
+  /* Long names ellipsize instead of crowding the uid off the edge (the
+     uid is flex:none below, so the name is the one that gives). */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
   font-weight: 650;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
 .message .uid {
+  margin-left: auto;
+  flex: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
   color: var(--text-faint);
 }
 
+/* Timestamp — absolutely positioned bubble corner (bubble is position:
+   relative below). Sibling of .msg so rerenderEmojis (which clears .msg)
+   never wipes it; shown on every message, threaded included.
+   Geometry: right:12px keeps the digits clear of the 16px corner curve,
+   and matches .msg's 3.5em (~51px) reserve as 12px offset + ~33px of
+   "HH:mm" + ~6px breathing room to the last text line. */
 .message .time {
-  margin-left: auto;
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-faint);
 }
 
@@ -579,6 +600,8 @@ body {
   font-size: 14.5px;
   line-height: 1.5;
   color: var(--text);
+  /* Reserve room for the corner timestamp */
+  padding-right: 3.5em;
 }
 
 /* Inline emoji — sized to sit on the text baseline when mixed with words. */
@@ -609,15 +632,37 @@ body {
 }
 
 /* Consecutive messages from the same user group into a thread:
-   hide the avatar + meta on all but the first, tighten spacing */
+   hide the avatar + meta on all but the first, tighten spacing.
+   margin-top:0 over the 8px base leaves just the 2px list gap between
+   bubbles of one run — reads as one utterance, not several. */
 .message.threaded {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .message.threaded .avatar {
   visibility: hidden;
 }
 .message.threaded .nickname {
   display: none;
+}
+
+/* Group corners (Telegram): continuation bubbles square the corner nearest
+   the hidden avatar, and the bubble *before* a continuation squares its
+   matching bottom corner — the pair "hugs" into a single visual block.
+   :not([class*="bubble--"]) keeps preset bubbles (flat/card/minimal set
+   their own 6px radius) out of this game. */
+.message.threaded .bubble:not([class*="bubble--"]) {
+  border-top-left-radius: var(--radius-sm);
+}
+.message.self.threaded .bubble:not([class*="bubble--"]) {
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius-sm);
+}
+.message:has(+ .message.threaded) .bubble:not([class*="bubble--"]) {
+  border-bottom-left-radius: var(--radius-sm);
+}
+.message.self:has(+ .message.threaded) .bubble:not([class*="bubble--"]) {
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius-sm);
 }
 
 /* Linkified URLs */
@@ -676,26 +721,31 @@ body {
   min-width: 0;
 }
 
+/* Telegram-style quote: stacked (author above, snippet below) under a
+   3px accent-tinted bar — the bar quotes, the name credits, the text
+   recites. Stacking replaces the old inline 40%-name squeeze, so long
+   names + long snippets no longer fight for one line. */
 .message .reply-quote {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-faint);
-  border-left: 2px solid var(--border);
-  padding: 2px 8px;
-  margin-bottom: 4px;
-  border-radius: 2px;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  padding: 3px 10px 4px;
+  margin-bottom: 5px;
+  border-radius: 0 6px 6px 0;
   background: color-mix(in srgb, var(--text) 4%, transparent);
   min-width: 0;
 }
 
 .message .reply-quote .reply-name {
   flex: none;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--accent);
-  max-width: 40%;
+  max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -769,6 +819,20 @@ body {
   font-size: 12.5px;
   text-align: center;
   animation: msg-in var(--dur-slow) var(--ease-out);
+}
+
+/* Day separator — reuses the sys-msg pill as a quiet date chip. It labels
+   the day of the messages BELOW it, so the spacing is asymmetric: ~16px
+   above (farewell to the old day) vs ~12px below (the chip sits close to
+   the first message it names). Slightly smaller + tracked-out digits read
+   as a calendar marker, distinct from event sys-messages. */
+.sys-msg.day-sep {
+  margin: 14px auto 2px;
+  width: fit-content;
+  padding: 4px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 @keyframes msg-in {
@@ -1110,8 +1174,21 @@ body {
     display: inline-flex;
   }
 
+  /* Narrow screens: pull the gutters in — the list sheds its wide side
+     padding, bubbles slim down, and the avatar column tightens so text
+     (with its absolute-timestamp reserve) keeps as much line length as
+     the small screen can give. */
+  .message-list {
+    padding: 14px 12px 10px;
+  }
+
   .message {
     max-width: 94%;
+    gap: 8px;
+  }
+
+  .message .bubble {
+    padding: 8px 11px;
   }
 
   /* Two-row composer via flow layout (flex-wrap + order, no HTML change):
@@ -1753,6 +1830,9 @@ body {
 
 .message .bubble.size-sm .msg {
   font-size: 13px;
+  /* em reserve shrinks with the smaller font — widen it so the corner
+     timestamp still clears the last line (3.9em × 13px ≈ 51px). */
+  padding-right: 3.9em;
 }
 
 .message .bubble.size-lg .msg {

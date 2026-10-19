@@ -80,8 +80,99 @@ export function buildMessagePayload(fields: ClientMessage, clientId: string): Cl
   return { type: 'message', data: { ...fields, clientId } }
 }
 
+/** 24-hour HH:mm display (manual padding — deterministic across locales). */
 export function formatTime(ts: number): string {
-  return new Date(ts * 1000).toLocaleString()
+  const d = new Date(ts * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Local-timezone YYYY-MM-DD day key for a unix-seconds timestamp. */
+export function dayKeyOf(rawTs: number): string {
+  const d = new Date(rawTs * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Day separator label: `2026年10月19日` (no zero padding on month/day). */
+export function formatDayLabel(dayKey: string): string {
+  const [y, m, d] = dayKey.split('-')
+  if (!y || !m || !d) return dayKey
+  return `${Number(y)}年${Number(m)}月${Number(d)}日`
+}
+
+/** Nearest adjacent `.message` sibling in `dir`, skipping non-message
+ * elements (sys messages, day separators, the history tip). */
+function nearestMessageSibling(el: HTMLElement, dir: 'next' | 'prev'): HTMLElement | null {
+  let sib = dir === 'next' ? el.nextElementSibling : el.previousElementSibling
+  while (sib) {
+    if (sib.classList.contains('message')) return sib as HTMLElement
+    sib = dir === 'next' ? sib.nextElementSibling : sib.previousElementSibling
+  }
+  return null
+}
+
+/** Day separator pill; labels the day of the first message BELOW it. */
+function buildDaySepEl(dayKey: string): HTMLElement {
+  const sep = document.createElement('div')
+  sep.className = 'sys-msg day-sep'
+  sep.textContent = formatDayLabel(dayKey)
+  return sep
+}
+
+/**
+ * Inserts a rendered message node with same-user threading and day-separator
+ * derivation (adjacency-based — no extra state, dedup falls out naturally):
+ *
+ *  - 'before' (upward pagination): node lands right AFTER #history-tip, so
+ *    the tip stays the first child of the list. If the nearest `.message`
+ *    below is same uid AND same dayKey, that SIBLING gets `.threaded` (it
+ *    now visually hangs off node above it); on a day change a separator is
+ *    inserted between them, labeled with the sibling's (newer) day.
+ *  - 'after' (initial load / live): node appends at the bottom. If the
+ *    nearest `.message` above is same uid AND same dayKey, NODE gets
+ *    `.threaded`; on a day change a separator is inserted before node,
+ *    labeled with node's dayKey.
+ *
+ * Messages without a dayKey (no rawTs) never merge and never spawn a
+ * separator — their day is unknown, treated as "different".
+ */
+export function insertMessageNode(
+  msgList: HTMLElement,
+  historyTip: HTMLElement,
+  node: HTMLElement,
+  position: 'before' | 'after',
+): void {
+  if (position === 'before') {
+    // nextSibling null (tip is last child) → insertBefore appends; either
+    // way the tip remains the first element of the list.
+    msgList.insertBefore(node, historyTip.nextSibling ?? null)
+  } else {
+    msgList.appendChild(node)
+  }
+
+  if (!node.classList.contains('message')) return
+  const dayKey = node.dataset.dayKey
+
+  if (position === 'before') {
+    const below = nearestMessageSibling(node, 'next')
+    if (!below) return
+    const belowKey = below.dataset.dayKey
+    if (dayKey && belowKey && dayKey !== belowKey) {
+      msgList.insertBefore(buildDaySepEl(belowKey), node.nextSibling ?? null)
+    } else if (dayKey && belowKey && dayKey === belowKey && below.dataset.uid === node.dataset.uid) {
+      below.classList.add('threaded')
+    }
+  } else {
+    const above = nearestMessageSibling(node, 'prev')
+    if (!above) return
+    const aboveKey = above.dataset.dayKey
+    if (dayKey && aboveKey && dayKey !== aboveKey) {
+      msgList.insertBefore(buildDaySepEl(dayKey), node)
+    } else if (dayKey && aboveKey && dayKey === aboveKey && above.dataset.uid === node.dataset.uid) {
+      node.classList.add('threaded')
+    }
+  }
 }
 
 export function escapeRegex(str: string): string {
@@ -512,7 +603,12 @@ async function init(): Promise<void> {
     const cached = await loadHistoryCache(roomId)
     if (cached.length > 0) {
       for (const m of cached) {
-        appendMsg({ ...m, type: 'msg' }, 'after')
+        // Recompute the display time from rawTs — older caches carry the
+        // previous full-locale format string.
+        appendMsg(
+          { ...m, type: 'msg', time: typeof m.rawTs === 'number' ? formatTime(m.rawTs) : m.time },
+          'after',
+        )
       }
       setTimeout(() => {
         msgList.scrollTop = msgList.scrollHeight
@@ -600,6 +696,9 @@ async function init(): Promise<void> {
       node = document.createElement('div')
       node.className = 'message' + (item.highlight ? ' highlight' : '')
       node.dataset.uid = item.uid
+      // Day key drives threading and day separators (see insertMessageNode).
+      // No rawTs → no key → treated as "different day" by adjacency checks.
+      if (typeof item.rawTs === 'number') node.dataset.dayKey = dayKeyOf(item.rawTs)
       if (userInfo && item.uid === userInfo.uid) node.classList.add('self')
 
       const avatar = buildAvatarEl(safeParseMeta(item.meta), item.name ?? '?', item.uid)
@@ -607,6 +706,8 @@ async function init(): Promise<void> {
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
 
+      // Nickname row: name on the left, uid on the right. dataset.uid/name
+      // hooks drive the reply menu and @mentions (do not remove).
       const nickname = document.createElement('span')
       nickname.className = 'nickname'
       nickname.dataset.uid = item.uid
@@ -622,17 +723,10 @@ async function init(): Promise<void> {
       name.textContent = item.name ?? ''
       nickname.appendChild(name)
 
-      const meta = document.createElement('span')
-      meta.className = 'meta'
       const uidSpan = document.createElement('span')
       uidSpan.className = 'uid'
       uidSpan.textContent = item.uid ?? ''
-      const timeSpan = document.createElement('span')
-      timeSpan.className = 'time'
-      timeSpan.textContent = item.time ?? ''
-      meta.appendChild(uidSpan)
-      meta.appendChild(timeSpan)
-      nickname.appendChild(meta)
+      nickname.appendChild(uidSpan)
 
       const msgSpan = document.createElement('span')
       msgSpan.className = 'msg'
@@ -643,6 +737,12 @@ async function init(): Promise<void> {
       msgSpan.dataset.raw = msg
       containsLink = renderMarkdown(msgSpan, msg, emojiMap, uploadHost).containsLink
       msgSpan.dataset.hasLink = String(containsLink)
+
+      // Timestamp: sibling of .msg inside the bubble — NEVER inside .msg,
+      // which rerenderEmojis clears and rebuilds on emoji load.
+      const timeSpan = document.createElement('span')
+      timeSpan.className = 'time'
+      timeSpan.textContent = item.time ?? ''
 
       if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
 
@@ -665,15 +765,18 @@ async function init(): Promise<void> {
 
       bubble.appendChild(nickname)
       bubble.appendChild(msgSpan)
+      bubble.appendChild(timeSpan)
       applyMetaClasses(bubble, safeParseMeta(item.meta))
       node.appendChild(avatar)
       node.appendChild(bubble)
     }
 
-    if (position === 'before') {
-      msgList.prepend(node)
-    } else {
-      msgList.appendChild(node)
+    // Insert with thread-merge + day-separator derivation. 'before' keeps
+    // #history-tip as the first child (Bug A) and threads the below
+    // sibling instead of the node itself (Bug B).
+    insertMessageNode(msgList, historyTip, node, position)
+
+    if (position === 'after') {
       // Stick-to-bottom: own messages engage the stick and always land at
       // the bottom; otherwise scroll only while the stick is engaged (the
       // reader is pinned — reading history is never yanked down).
@@ -690,16 +793,6 @@ async function init(): Promise<void> {
           unread++
           renderPill()
         }
-      }
-    }
-
-    // Group consecutive messages from the same user (avatar/meta hidden via .threaded)
-    if (node.classList.contains('message')) {
-      const sibling = (
-        position === 'before' ? node.nextElementSibling : node.previousElementSibling
-      ) as HTMLElement | null
-      if (sibling && sibling.classList.contains('message') && sibling.dataset.uid === node.dataset.uid) {
-        node.classList.add('threaded')
       }
     }
 

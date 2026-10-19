@@ -11,6 +11,10 @@
  *   - element.className / href / target / rel / src / alt / loading / referrerPolicy
  *   - element.querySelector(sel) / querySelectorAll(sel) with `tag` and
  *     `tag.class` selectors, searching descendants recursively
+ *   - element.dataset (plain object), className/classList backed by one Set
+ *   - element.insertBefore(child, ref) / appendChild (both track parents)
+ *   - element.nextSibling / previousSibling / nextElementSibling /
+ *     previousElementSibling (element-only for the *Element variants)
  *
  * It deliberately does NOT implement innerHTML — the whole point of the
  * renderMarkdown tests is verifying safe DOM building via createElement +
@@ -31,6 +35,8 @@ interface StubNode {
 class StubTextNode implements StubNode {
   readonly nodeType = 3
   children: StubNode[] = []
+  /** Owning element — set by appendChild/insertBefore; powers sibling walks. */
+  _parent: StubElement | null = null
   private _text: string
 
   constructor(text: string) {
@@ -63,7 +69,6 @@ class StubElement implements StubNode {
   readonly nodeType = 1
   readonly tagName: string
   children: StubNode[] = []
-  className = ''
   href = ''
   target = ''
   rel = ''
@@ -71,15 +76,30 @@ class StubElement implements StubNode {
   alt = ''
   loading = ''
   referrerPolicy = ''
+  /** Dataset surface (plain object; camelCase keys stored as-is — producer
+   * and consumer are the same module code, so no DOM camelCase mapping). */
+  dataset: Record<string, string> = {}
   /** Minimal style surface (background etc.) for avatar/monogram building. */
   style: Record<string, string> = {}
   /** Button/form element disabled state — needed for upload button tests. */
   disabled = false
   /** Hidden attribute — reflects HTML hidden="" (used by refreshUploadVisibility). */
   hidden = false
+  /** Owning element — set by appendChild/insertBefore; powers sibling walks. */
+  _parent: StubElement | null = null
   /** Set when textContent is assigned; overrides child concatenation. */
   private _textContent: string | null = null
   private _classes = new Set<string>()
+
+  /** className and classList share the same backing Set, mirroring the real
+   * DOM where `el.className = 'x'` and `el.classList.contains('x')` agree. */
+  get className(): string {
+    return Array.from(this._classes).join(' ')
+  }
+
+  set className(value: string) {
+    this._classes = new Set(value.split(/\s+/).filter(Boolean))
+  }
 
   get classList(): {
     add(c: string): void
@@ -100,7 +120,56 @@ class StubElement implements StubNode {
   }
 
   appendChild(child: StubNode): void {
+    if (child.nodeType === 1) (child as StubElement)._parent = this
+    else (child as StubTextNode)._parent = this
     this.children.push(child)
+  }
+
+  /** DOM insertBefore: ref null / not-a-child → append (the DOM would throw
+   * for a bad ref; tests only pass own children or null). */
+  insertBefore(child: StubNode, ref: StubNode | null): StubNode {
+    if (child.nodeType === 1) (child as StubElement)._parent = this
+    else (child as StubTextNode)._parent = this
+    const idx = ref === null || ref === undefined ? -1 : this.children.indexOf(ref)
+    if (idx === -1) this.children.push(child)
+    else this.children.splice(idx, 0, child)
+    return child
+  }
+
+  get nextSibling(): StubNode | null {
+    const sibs = this._parent?.children
+    if (!sibs) return null
+    const i = sibs.indexOf(this)
+    return i >= 0 && i + 1 < sibs.length ? sibs[i + 1] : null
+  }
+
+  get previousSibling(): StubNode | null {
+    const sibs = this._parent?.children
+    if (!sibs) return null
+    const i = sibs.indexOf(this)
+    return i > 0 ? sibs[i - 1] : null
+  }
+
+  get nextElementSibling(): StubElement | null {
+    const sibs = this._parent?.children
+    if (!sibs) return null
+    const i = sibs.indexOf(this)
+    if (i < 0) return null
+    for (let j = i + 1; j < sibs.length; j++) {
+      if (sibs[j].nodeType === 1) return sibs[j] as StubElement
+    }
+    return null
+  }
+
+  get previousElementSibling(): StubElement | null {
+    const sibs = this._parent?.children
+    if (!sibs) return null
+    const i = sibs.indexOf(this)
+    if (i < 0) return null
+    for (let j = i - 1; j >= 0; j--) {
+      if (sibs[j].nodeType === 1) return sibs[j] as StubElement
+    }
+    return null
   }
 
   get textContent(): string {

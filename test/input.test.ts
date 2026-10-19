@@ -129,4 +129,10 @@ describe('genGuestName', () => {
       expect(genGuestName()).toMatch(/^user_[a-z0-9]{5}$/)
     }
   })
+
+  test('first slug character is a letter, never a digit', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(genGuestName()).toMatch(/^user_[a-z]/)
+    }
+  })
 })
