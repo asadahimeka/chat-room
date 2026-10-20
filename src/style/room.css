@@ -545,12 +545,11 @@ body {
   display: none;
 }
 
-/* Nickname row — name first, uid trailing at a small fixed gap (inline,
-   left-aligned; no justify). .nickname keeps its dataset.uid/name hooks
-   for the reply menu/@mentions.
-   Hierarchy: the name is content (sans, 12.5px, bold, user color), the uid
-   is metadata — mono, down at 10.5px in the faintest ink, same size as the
-   bubble timestamp so both meta layers share one voice. */
+/* Nickname/meta row — name first, uid trailing at a small fixed gap,
+   timestamp pinned to the right end (inline, left-packed content).
+   .nickname keeps its dataset.uid/name hooks for the reply menu/@mentions.
+   Hierarchy: the name is content (sans, 12.5px, bold, user color); the uid
+   and time are metadata — mono, 10.5-11px, faintest ink, one quiet voice. */
 .message .nickname {
   display: flex;
   align-items: baseline;
@@ -581,16 +580,14 @@ body {
   color: var(--text-faint);
 }
 
-/* Timestamp — absolutely positioned bubble corner (bubble is position:
-   relative below). Sibling of .msg so rerenderEmojis (which clears .msg)
-   never wipes it; shown on every message, threaded included.
-   Geometry: right:12px keeps the digits clear of the 16px corner curve;
-   the horizontal clearance comes from the inline spacer after the text
-   (.msg::after below), not from a block-wide padding column. */
-.message .time {
-  position: absolute;
-  right: 12px;
-  bottom: 7px;
+/* Timestamp — an inline member of the .nickname meta row (after the uid;
+   the DOM move happens in room.client.ts). Same quiet metadata voice as
+   the uid — mono, 11px, faintest ink — pinned to the row's right end by
+   an auto margin. Because it lives inside the row, .threaded's
+   `display:none` on .nickname hides the time along with name and uid. */
+.message .nickname .time {
+  flex: none;
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-faint);
@@ -602,28 +599,6 @@ body {
   color: var(--text);
 }
 
-/* Last-line time reserve — an invisible inline-block spacer appended after
-   the text (replaces the old right-padding column that inset EVERY line).
-   Text now runs the bubble's full width; only the last line pays for the
-   timestamp: when the spacer fits it tails the last line invisibly and the
-   time sits on that blank; when it doesn't, the spacer wraps into a short
-   stub line of its own and the time drops into that stub — never onto
-   text. width is px on purpose: the time is a fixed 11px mono "HH:mm"
-   (~33px) + 12px right offset + ~6px breathing ≈ 52px at EVERY .msg font
-   size, so the size-sm/size-lg/font-mono presets can't shrink the
-   reserve. */
-.message .msg::after {
-  content: "";
-  display: inline-block;
-  width: 52px;
-  height: 1em;
-}
-
-/* Emoji stamps carry the translucent overlay chip instead — no spacer. */
-.message .bubble.emoji-only .msg::after {
-  display: none;
-}
-
 /* Inline emoji — sized to sit on the text baseline when mixed with words. */
 .message .msg img.emoji {
   height: 2em;
@@ -632,17 +607,14 @@ body {
   border-radius: 4px;
 }
 
-/* Standalone emoji message — images blow up to a readable stamp size.
-   Stamps take the bubble's full content width (no right-hand timestamp
-   reserve); instead a bottom strip (padding-bottom) hosts the translucent
-   time chip below the artwork, so the chip never sits on a stamp. */
+/* Standalone emoji message — images blow up to a readable stamp size and
+   take the bubble's full content width. The timestamp lives in the
+   nickname meta row like any other message — no special handling here. */
 .message .bubble.emoji-only .msg {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   align-items: flex-end;
-  padding-right: 0;
-  padding-bottom: 20px;
 }
 
 .message .bubble.emoji-only .msg img.emoji {
@@ -654,25 +626,6 @@ body {
 }
 .message.self .bubble.emoji-only .msg img.emoji {
   margin-left: auto;
-}
-
-/* Emoji-only timestamp — translucent Telegram-style chip pinned into the
-   bubble's bottom-right corner, living in that bottom strip: ~4-6px clear
-   of the stamps above, and right:7px / bottom:6px keeps it ~3.5px inside
-   the 16px corner arc so it never spills the rounded corner. Scrim and
-   ink are the theme's paired bg/text tokens (scrim at 72% alpha) — both
-   flip together between light and dark, so HH:mm stays readable over any
-   stamp in either theme; pointer-events:none lets taps reach the emoji. */
-.message .bubble.emoji-only .time {
-  right: 7px;
-  bottom: 6px;
-  z-index: 1;
-  pointer-events: none;
-  padding: 1px 6px;
-  border-radius: 8px;
-  line-height: 1.4;
-  background: color-mix(in srgb, var(--bg) 72%, transparent);
-  color: var(--text);
 }
 
 /* Consecutive messages from the same user group into a thread:
@@ -1375,15 +1328,6 @@ body {
   content: "（发送失败，点击重发）";
   color: var(--danger);
   font-size: 12px;
-  /* The error suffix lives on the SAME pseudo-element as the time spacer
-     (one box gets a single ::after), so it must re-assert the inline box
-     model over the spacer's inline-block and carry the identical 52px
-     reserve as trailing padding — otherwise a long suffix could run
-     under the corner timestamp. */
-  display: inline;
-  width: auto;
-  height: auto;
-  padding-right: 52px;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1883,8 +1827,6 @@ body {
 
 .message .bubble.size-sm .msg {
   font-size: 13px;
-  /* No time reserve here: the .msg::after spacer is a fixed 52px, which
-     covers the 11px timestamp at this (and every) font size. */
 }
 
 .message .bubble.size-lg .msg {

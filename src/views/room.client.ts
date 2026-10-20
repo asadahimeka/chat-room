@@ -767,6 +767,14 @@ async function init(): Promise<void> {
       uidSpan.textContent = item.uid ?? ''
       nickname.appendChild(uidSpan)
 
+      // Timestamp at the right end of the nickname row (.name → .uid → .time;
+      // right-alignment via CSS margin-left:auto). Threaded messages hide it
+      // together with the whole nickname row.
+      const timeSpan = document.createElement('span')
+      timeSpan.className = 'time'
+      timeSpan.textContent = item.time ?? ''
+      nickname.appendChild(timeSpan)
+
       const msgSpan = document.createElement('span')
       msgSpan.className = 'msg'
       const msgColorVal = item.msgcolor || DEFAULT_MSG_COLOR
@@ -776,12 +784,6 @@ async function init(): Promise<void> {
       msgSpan.dataset.raw = msg
       containsLink = renderMarkdown(msgSpan, msg, emojiMap, uploadHost).containsLink
       msgSpan.dataset.hasLink = String(containsLink)
-
-      // Timestamp: sibling of .msg inside the bubble — NEVER inside .msg,
-      // which rerenderEmojis clears and rebuilds on emoji load.
-      const timeSpan = document.createElement('span')
-      timeSpan.className = 'time'
-      timeSpan.textContent = item.time ?? ''
 
       if (isEmojiOnlyMessage(msg, emojiMap)) bubble.classList.add('emoji-only')
 
@@ -804,7 +806,6 @@ async function init(): Promise<void> {
 
       bubble.appendChild(nickname)
       bubble.appendChild(msgSpan)
-      bubble.appendChild(timeSpan)
       applyMetaClasses(bubble, safeParseMeta(item.meta))
       node.appendChild(avatar)
       node.appendChild(bubble)
