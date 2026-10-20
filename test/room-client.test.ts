@@ -467,8 +467,9 @@ describe('formatUnreadLabel', () => {
 })
 
 describe('shouldCountAsUnread', () => {
-  it('shouldCountAsUnread counts sys + others, not self', () => {
-    expect(shouldCountAsUnread('sys', false)).toBe(true)
+  it('shouldCountAsUnread counts only others\' messages — never sys, never self', () => {
+    expect(shouldCountAsUnread('sys', false)).toBe(false)
+    expect(shouldCountAsUnread('sys', true)).toBe(false)
     expect(shouldCountAsUnread('msg', false)).toBe(true)
     expect(shouldCountAsUnread('msg', true)).toBe(false)
   })

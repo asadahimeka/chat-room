@@ -48,7 +48,7 @@ export function formatUnreadLabel(n: number): string {
 }
 
 export function shouldCountAsUnread(kind: 'sys' | 'msg', isSelf: boolean): boolean {
-  return kind === 'sys' ? true : !isSelf
+  return kind === 'msg' && !isSelf
 }
 
 /**
@@ -120,22 +120,40 @@ function buildDaySepEl(dayKey: string): HTMLElement {
   return sep
 }
 
+/** All .day-sep chips strictly between `from` (exclusive) and `to`
+ * (exclusive) in sibling order. `to` is normally the nearest .message
+ * below, so everything strictly between is sys pills and chips. */
+function daySepsBetween(from: HTMLElement, to: HTMLElement | null): HTMLElement[] {
+  const chips: HTMLElement[] = []
+  let cur = from.nextElementSibling as HTMLElement | null
+  while (cur && cur !== to) {
+    if (cur.classList.contains('day-sep')) chips.push(cur)
+    cur = cur.nextElementSibling as HTMLElement | null
+  }
+  return chips
+}
+
 /**
- * Inserts a rendered message node with same-user threading and day-separator
- * derivation (adjacency-based — no extra state, dedup falls out naturally):
+ * Inserts a rendered message node with same-user threading and the day-chip
+ * invariant: EVERY maximal same-day block — including the oldest — has a
+ * `.day-sep` chip directly above its first message, labeled with that
+ * block's dayKey (adjacency-based; no extra state, dedup falls out):
  *
  *  - 'before' (upward pagination): node lands right AFTER #history-tip, so
- *    the tip stays the first child of the list. If the nearest `.message`
- *    below is same uid AND same dayKey, that SIBLING gets `.threaded` (it
- *    now visually hangs off node above it); on a day change a separator is
- *    inserted between them, labeled with the sibling's (newer) day.
- *  - 'after' (initial load / live): node appends at the bottom. If the
- *    nearest `.message` above is same uid AND same dayKey, NODE gets
- *    `.threaded`; on a day change a separator is inserted before node,
- *    labeled with node's dayKey.
+ *    the tip stays the first child. Against the nearest `.message` below
+ *    (skipping non-messages): same dayKey → that SIBLING gets `.threaded`
+ *    on uid match, and the old top chip between them is SWALLOWED (the
+ *    block grew upward, its chip moves with the new top); different dayKey
+ *    → a chip labeled belowKey sits directly below node (existing chip
+ *    corrected in place, missing one inserted). Finally node itself always
+ *    gets a fresh chip above it (it is the new block top — no dedup needed).
+ *  - 'after' (initial load / live): node appends at the bottom. Nearest
+ *    `.message` above same uid AND same dayKey → NODE gets `.threaded`;
+ *    different dayKey → a chip labeled nodeKey goes before node; NO message
+ *    above at all (first message of the list) → chip above node too.
  *
- * Messages without a dayKey (no rawTs) never merge and never spawn a
- * separator — their day is unknown, treated as "different".
+ * Messages without a dayKey (no rawTs) never merge, never spawn or consume
+ * chips — their day is unknown, treated as "different".
  */
 export function insertMessageNode(
   msgList: HTMLElement,
@@ -156,17 +174,38 @@ export function insertMessageNode(
 
   if (position === 'before') {
     const below = nearestMessageSibling(node, 'next')
-    if (!below) return
-    const belowKey = below.dataset.dayKey
-    if (dayKey && belowKey && dayKey !== belowKey) {
-      msgList.insertBefore(buildDaySepEl(belowKey), node.nextSibling ?? null)
-    } else if (dayKey && belowKey && dayKey === belowKey && below.dataset.uid === node.dataset.uid) {
-      below.classList.add('threaded')
+    const belowKey = below?.dataset.dayKey
+    if (below && dayKey && belowKey) {
+      if (dayKey === belowKey) {
+        // Same-day block grows upward: the chip that topped the block (now
+        // sitting between node and below) is swallowed; a fresh one lands
+        // above node just below — net chip count unchanged.
+        for (const chip of daySepsBetween(node, below)) chip.remove()
+        if (below.dataset.uid === node.dataset.uid) below.classList.add('threaded')
+      } else {
+        // Day boundary must carry a chip directly below node labeled with
+        // the newer day: correct the existing one in place, insert if gone.
+        const existing = daySepsBetween(node, below)
+        if (existing.length > 0) {
+          existing[0].textContent = formatDayLabel(belowKey)
+          for (const extra of existing.slice(1)) extra.remove()
+        } else {
+          msgList.insertBefore(buildDaySepEl(belowKey), node.nextSibling ?? null)
+        }
+      }
     }
+    // Missing dayKey on either side: no merge, existing chips untouched.
+    // Top chip for the (possibly extended) block: node sits directly below
+    // the tip, so a chip right above node needs no dedup.
+    if (dayKey) msgList.insertBefore(buildDaySepEl(dayKey), node)
   } else {
     const above = nearestMessageSibling(node, 'prev')
-    if (!above) return
-    const aboveKey = above.dataset.dayKey
+    const aboveKey = above?.dataset.dayKey
+    if (!above) {
+      // First message of the list: its block still needs a top chip.
+      if (dayKey) msgList.insertBefore(buildDaySepEl(dayKey), node)
+      return
+    }
     if (dayKey && aboveKey && dayKey !== aboveKey) {
       msgList.insertBefore(buildDaySepEl(dayKey), node)
     } else if (dayKey && aboveKey && dayKey === aboveKey && above.dataset.uid === node.dataset.uid) {
