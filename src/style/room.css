@@ -608,8 +608,8 @@ body {
 }
 
 /* Standalone emoji message — images blow up to a readable stamp size and
-   take the bubble's full content width. The timestamp lives in the
-   nickname meta row like any other message — no special handling here. */
+   take the bubble's full content width. The timestamp stays in the
+   nickname meta row; emoji-only meta itself goes two-line (rules below). */
 .message .bubble.emoji-only .msg {
   display: flex;
   flex-wrap: wrap;
@@ -626,6 +626,38 @@ body {
 }
 .message.self .bubble.emoji-only .msg img.emoji {
   margin-left: auto;
+}
+
+/* Emoji-only meta goes two-line: the name alone on line 1, uid + time
+   flowing inline as a quiet "A12345 12:34" line 2 — the single flex row
+   was what widened the bubble beside the stamps.
+   Block layout, NOT flex-wrap: the bubble is shrink-to-fit, and under
+   max-content sizing a flex row never wraps — the width would not change.
+   width:0 + min-width:100% zeroes the name's intrinsic contribution (a
+   long nowrap name would otherwise stretch the bubble past the stamp)
+   while still filling the row, so the inherited ellipsis clips at the
+   stamp-driven width. Line 2 stays plain inline flow — never stretched
+   (no width:100%, no justify) and never forced nowrap.
+   ORDER MATTERS: this ties .threaded's .nickname rule on specificity
+   (0,3,0), so it must sit ABOVE it in source — .threaded (later) then
+   wins the tie and keeps hiding the whole meta block on continuations. */
+.bubble.emoji-only .nickname {
+  display: block;
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+
+.bubble.emoji-only .name {
+  display: block;
+  width: 0;
+  min-width: 100%;
+}
+
+/* The flex row's 6px gap is gone in block context and margin-left:auto is
+   inert on inline boxes — re-state the uid→time spacing as a plain
+   margin. Specificity (0,4,0) beats the base .nickname .time rule. */
+.bubble.emoji-only .nickname .time {
+  margin-left: 6px;
 }
 
 /* Consecutive messages from the same user group into a thread:
