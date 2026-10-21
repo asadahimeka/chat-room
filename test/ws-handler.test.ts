@@ -4,6 +4,7 @@ import { Database } from 'bun:sqlite'
 import { RoomState } from '../src/ws/room-state'
 import { registerWs, sanitizeMeta } from '../src/ws/handler'
 import { db, _testDefaultDbPath } from '../src/db'
+import { encodeIdentity } from '../src/utils/identity'
 import { randomRoomName, tmpDbPath } from './setup'
 
 // Point the lazy `db` proxy at a throwaway DB BEFORE any message triggers
@@ -448,6 +449,71 @@ describe('ws handler — connection lifecycle + broadcast pipeline', () => {
 
     a.ws.close()
     b.ws.close()
+    app.stop()
+  })
+
+  test('identity envelope in ?id supplies uid + nickname without cookies', async () => {
+    const room = randomRoomName('env1')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const id = encodeIdentity({ u: 'u1', n: '小明' })
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1&id=${id}`, {})
+
+    const init = await a.waitFor('init')
+    expect(init[0].data).toEqual({ uid: 'u1', name: '小明' })
+
+    a.ws.close()
+    app.stop()
+  })
+
+  test('invalid envelope uid falls back to the cookie identity', async () => {
+    const room = randomRoomName('env2')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const id = encodeIdentity({ u: 'toolonguid' })
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1&id=${id}`, {
+      cookie: 'name=Alice; uid=u2',
+    })
+
+    const init = await a.waitFor('init')
+    expect(init[0].data).toEqual({ uid: 'u2', name: 'Alice' })
+
+    a.ws.close()
+    app.stop()
+  })
+
+  test('invalid envelope uid without cookies falls back to the ?t= sid', async () => {
+    const room = randomRoomName('env3')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const id = encodeIdentity({ u: 'a b' })
+    const a = await connect(`${baseUrl}?roomId=${room}&t=sid9&id=${id}`, {})
+
+    const init = await a.waitFor('init')
+    const data = init[0].data as { uid: string; name: string }
+    expect(data.uid).toBe('sid9')
+    expect(data.name.length).toBeGreaterThan(0)
+
+    a.ws.close()
+    app.stop()
+  })
+
+  test('malformed ?id falls back to the cookie identity without throwing', async () => {
+    const room = randomRoomName('env4')
+    const app = registerWs(new Elysia(), new RoomState()).listen(0)
+    const baseUrl = `ws://localhost:${app.server!.port}/ws`
+
+    const a = await connect(`${baseUrl}?roomId=${room}&t=s1&id=!!!`, {
+      cookie: 'name=Alice; uid=u1',
+    })
+
+    const init = await a.waitFor('init')
+    expect(init[0].data).toEqual({ uid: 'u1', name: 'Alice' })
+
+    a.ws.close()
     app.stop()
   })
 

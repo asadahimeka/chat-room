@@ -49,3 +49,12 @@ bun test            # 全量测试（已排除 reference/**）
 | Elysia 泛型逆变 | 类型化 router 不能赋给裸 `Elysia` 类型，需 `Elysia<any,...>` 显式泛型（见 src/router/upload.ts 注释） |
 | 服务端 xss 转义实体 | `processInput(msg,true)` 把 `>`→`&gt;` 等；客户端 markdown 渲染前必须先过 `unescapeEntities`（textContent 渲染保证安全） |
 | WAL 迁移不落主文件 | 服务器运行产生的 schema 变更先存在 gitignored 的 -wal 里；断言真实库 schema 时 meta 列按"可选"处理 |
+| 跨站 iframe 里 Lax cookie 不发 | 嵌在**跨站**（不同注册域）iframe 时，浏览器不会把无 SameSite 属性的 cookie 发给 iframe 内的请求——WS 握手与 `fetch` 同样不发。故身份走 `localStorage` + base64url 身份信封（`src/utils/identity.ts`）：WS 用 `?id=`，`/upload` 用 `x-chat-id:` 头；cookie 仅作兜底 |
+| 身份信封不是凭据 | 信封内容由客户端自选（等同被替换掉的 cookie），只用于让昵称/uid 跨刷新稳定，**不可**当认证凭据用；服务端仍需自行白名单校验 |
+
+## 身份与嵌入（跨站 iframe）
+
+- 身份存储：`localStorage['identity']` = `{"uid","name"}`；老 cookie 仅做一次性迁移 + 服务端兜底。
+- 传输格式统一为 base64url(JSON)：`{"u":uid,"n":昵称,"a":有头像}`，同一份编解码走两条通道。
+- 上传 profile gate 只校验"有没有"，**不传头像值**（服务端本来也只用存在性）。
+- 已知限制：Safari 第三方 iframe 的 `localStorage` 易失（7 天上限、重启即失），身份会回落成游客名；Chrome/Firefox 按顶级站点分区，跨站点身份不互通。

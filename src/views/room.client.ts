@@ -17,6 +17,7 @@ import { resolveEmojiConfig, buildEmojiMap, packsFromManifest, BUILTIN_EMOJI_ENT
 import { readableColor } from '../utils/color'
 import { loadHistoryCache, saveHistoryCache, clearHistoryCache, type CachedMsg } from '../utils/history-cache'
 import { applyMetaClasses, buildAvatarEl, serializeOutgoingMeta, safeParseMeta, msgDedupKey, parseReplyFromMeta, buildReplyQuoteEl, isReplyToMe, mergeReplyIntoMeta, REPLY_SNIPPET_MAX, type ReplySnapshot } from '../utils/render'
+import { encodeIdentity } from '../utils/identity'
 
 export const PENDING_TIMEOUT_MS = 8000
 export const PIN_TOLERANCE_PX = 32
@@ -249,18 +250,41 @@ export function fallbackCopyText(text: string): boolean {
 }
 
 /**
- * Decides which identity cookies to write on init: uid is always rewritten
- * (upgrading legacy 7-day cookies to permanent); name is only written when
- * the browser has none yet, so a manually chosen name is never clobbered.
+ * Reconciles the stored identity with the server's echo on `init`. The
+ * server owns the uid (it may have rejected a malformed stored one), while
+ * a stored non-empty nickname always wins over the server's guest name.
  */
-export function planIdentityCookies(
-  existingName: string,
-  user: { uid: string; name?: string },
-): { uid: string; name?: string } {
+export function planIdentity(
+  stored: { uid?: string; name?: string } | null,
+  server: { uid: string; name: string },
+): { uid: string; name: string } {
   return {
-    uid: user.uid,
-    name: existingName ? undefined : user.name || undefined,
+    uid: server.uid,
+    name: stored && typeof stored.name === 'string' && stored.name ? stored.name : server.name,
   }
+}
+
+/** Envelope payload for the stored identity — only non-empty fields. */
+export function buildIdentityEnvelope(
+  stored: { uid?: string; name?: string } | null,
+): { u?: string; n?: string } {
+  const env: { u?: string; n?: string } = {}
+  if (stored && typeof stored.uid === 'string' && stored.uid) env.u = stored.uid
+  if (stored && typeof stored.name === 'string' && stored.name) env.n = stored.name
+  return env
+}
+
+/**
+ * Whether the avatar pref counts as "profile complete" for the upload gate.
+ * Mirrors the server's sanitizeMeta avatar whitelist (https:// or
+ * data:image/) — a non-empty string is NOT enough, otherwise a garbage
+ * value would unlock the upload button.
+ */
+export function isUsableAvatar(avatar: unknown): boolean {
+  if (typeof avatar !== 'string') return false
+  const trimmed = avatar.trim()
+  if (!trimmed) return false
+  return /^(https:\/\/|data:image\/)/.test(trimmed)
 }
 
 export function isBlocked(uid: string, blockList: string[]): boolean {
@@ -364,6 +388,53 @@ function setCookie(name: string, value: string): void {
   const date = new Date()
   date.setTime(date.getTime() + 3650 * 24 * 60 * 60 * 1000) // "permanent": 10y, refreshed on each init/name edit
   document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${date.toUTCString()}`
+}
+
+/**
+ * Reads the identity from localStorage. When the key is absent it migrates
+ * the legacy uid/name cookies once (empty in a cross-site iframe, which
+ * simply yields null). Never throws — unavailable storage returns null so
+ * callers can fall back to the cookie path.
+ */
+function readStoredIdentity(): { uid?: string; name?: string } | null {
+  try {
+    const raw = localStorage.getItem('identity')
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+      const obj = parsed as Record<string, unknown>
+      return {
+        uid: typeof obj.uid === 'string' && obj.uid ? obj.uid : undefined,
+        name: typeof obj.name === 'string' && obj.name ? obj.name : undefined,
+      }
+    }
+    const uid = getCookie('uid')
+    const name = getCookie('name')
+    if (!uid && !name) return null
+    const migrated: { uid?: string; name?: string } = {}
+    if (uid) migrated.uid = uid
+    if (name) migrated.name = name
+    writeStoredIdentity(migrated)
+    return migrated
+  } catch (e) {
+    console.log(e)
+    return null
+  }
+}
+
+/** Persists the identity; storage may be unavailable/partitioned. */
+function writeStoredIdentity(identity: { uid?: string; name?: string }): void {
+  try {
+    localStorage.setItem('identity', JSON.stringify(identity))
+  } catch (e) {
+    console.log(e)
+  }
+}
+
+/** Current nickname: stored identity first, legacy cookie as fallback. */
+function currentIdentityName(): string {
+  const stored = readStoredIdentity()
+  return (stored?.name ?? getCookie('name')).trim()
 }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -962,7 +1033,7 @@ async function init(): Promise<void> {
       if (confirm(`确定屏蔽 ${name} 吗？`)) {
         blockList.push(uid)
         localStorage.setItem('blockList', JSON.stringify(blockList))
-        msgList.querySelectorAll(`.message[data-uid="${uid}"]`).forEach((n) => n.remove())
+        msgList.querySelectorAll(`.message[data-uid="${uid}"]`).forEach((n) => { n.remove() })
       }
       action.remove()
     })
@@ -1113,7 +1184,9 @@ async function init(): Promise<void> {
   function connect(): void {
     setStatus('连接中…', 'connecting')
     const sid = genSid()
-    const ws = new WebSocket(`${location.protocol == 'https:' ? 'wss' : 'ws'}://${location.host}/ws?roomId=${encodeURIComponent(roomId)}&t=${sid}`)
+    const envelope = encodeIdentity(buildIdentityEnvelope(readStoredIdentity()))
+    const idParam = envelope ? `&id=${envelope}` : ''
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?roomId=${encodeURIComponent(roomId)}&t=${sid}${idParam}`)
     socket = ws
 
     ws.onopen = () => {
@@ -1137,10 +1210,11 @@ async function init(): Promise<void> {
           const user = payload.data as JoinedUser
           if (userInfo) return
           userInfo = user
-          const identity = planIdentityCookies(getCookie('name'), user)
+          const identity = planIdentity(readStoredIdentity(), user)
+          writeStoredIdentity(identity)
           setCookie('uid', identity.uid)
           if (identity.name) setCookie('name', identity.name)
-          nameInput.value = user.name || user.uid
+          nameInput.value = identity.name || identity.uid
           // History rendered before init had no identity — tag own bubbles now.
           msgList.querySelectorAll<HTMLElement>('.message[data-uid]').forEach((n) => {
             n.classList.toggle('self', n.dataset.uid === user.uid)
@@ -1535,6 +1609,7 @@ async function init(): Promise<void> {
     if (!name || !userInfo || name === userInfo.name) return
     setCookie('name', name)
     userInfo.name = name
+    writeStoredIdentity({ uid: userInfo.uid, name })
     refreshUploadVisibility()
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'change-name', data: name }))
@@ -1628,11 +1703,10 @@ async function init(): Promise<void> {
   setAvatar.addEventListener('input', () => {
     userPrefs.avatar = setAvatar.value.trim()
     persistPrefs()
-    // A valid avatar URL also sets the profile cookie (T8 upload gate).
-    if (/^(https:\/\/|data:image\/)/.test(userPrefs.avatar)) {
-      setCookie('avatar', userPrefs.avatar)
-      refreshUploadVisibility()
-    }
+    // Avatar presence is signalled in the identity envelope, not a cookie.
+    // Re-evaluate on every change: an invalid avatar must hide the button
+    // again, not just fail to reveal it.
+    refreshUploadVisibility()
   })
   nameColor.addEventListener('input', () => {
     userPrefs.namecolor = sanitizeColor(nameColor.value, DEFAULT_NAME_COLOR)
@@ -1705,12 +1779,15 @@ async function init(): Promise<void> {
   const clearImagesBtn = el<HTMLButtonElement>('clear-images')
 
   setupCacheButton(clearSettingsBtn, '设置与屏蔽列表', async () => {
+    const identity = readStoredIdentity()
     try {
       localStorage.clear()
     } catch (e) {
       // storage unavailable
       console.log(e)
     }
+    // The identity is the "keep my nickname" state — restore it after the wipe.
+    if (identity) writeStoredIdentity(identity)
     // Expire every cookie except the identity pair (name + uid).
     // Cookies were all set with path=/, so expiring with path=/ matches.
     try {
@@ -1997,12 +2074,13 @@ async function init(): Promise<void> {
   const uploadBtn = el<HTMLButtonElement>('upload-btn')
   const uploadInput = el<HTMLInputElement>('upload-input')
 
-  // Hide the upload entry until the profile gate (name + avatar cookies) is
-  // satisfied — POST /upload returns 400 otherwise (see src/router/upload.ts).
+  // Hide the upload entry until the profile gate (stored identity name +
+  // avatar pref) is satisfied — POST /upload returns 400 otherwise (see
+  // src/router/upload.ts). Legacy cookies are only the storage-unavailable
+  // fallback, since a cross-site iframe never receives them.
   function refreshUploadVisibility(): void {
-    const name = getCookie('name').trim()
-    const avatar = getCookie('avatar').trim()
-    const ok = name !== '' && !name.startsWith('user_') && avatar !== ''
+    const name = currentIdentityName()
+    const ok = name !== '' && !name.startsWith('user_') && isUsableAvatar(userPrefs.avatar)
     uploadBtn.hidden = !ok
   }
 
@@ -2018,9 +2096,14 @@ async function init(): Promise<void> {
     const fd = new FormData()
     fd.append('file', file)
 
+    const envelope = encodeIdentity({
+      n: currentIdentityName() || undefined,
+      a: isUsableAvatar(userPrefs.avatar),
+    })
+
     uploadBtn.disabled = true
     uploadBtn.classList.add('uploading')
-    fetch('/upload', { method: 'POST', body: fd })
+    fetch('/upload', { method: 'POST', headers: { 'x-chat-id': envelope }, body: fd })
       .then(async (res) => {
         if (res.status === 200) {
           const data = (await res.json()) as { url?: unknown }

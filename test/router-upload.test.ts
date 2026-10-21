@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
 import { createUploadRouter, parseIp } from '../src/router/upload.ts'
 import type { UploadDeps } from '../src/router/upload.ts'
+import { encodeIdentity } from '../src/utils/identity.ts'
 
 const PNG_HEADER = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]
 // GIF89a magic (first 4 bytes); rest is irrelevant for magic detection.
@@ -34,10 +35,11 @@ function mockCompress(format: 'avif' | 'webp', byteLength = 100): UploadDeps['co
 
 function uploadRequest(
   body: FormData,
-  opts: { cookie?: string; ip?: string } = {},
+  opts: { cookie?: string; ip?: string; xChatId?: string } = {},
 ): Request {
   const headers: Record<string, string> = {}
   if (opts.cookie) headers.cookie = opts.cookie
+  if (opts.xChatId !== undefined) headers['x-chat-id'] = opts.xChatId
   // The injected getRemoteAddress reads this header to simulate the real peer IP.
   if (opts.ip) headers['x-client-ip'] = opts.ip
   return new Request('http://localhost/upload', { method: 'POST', headers, body })
@@ -92,6 +94,31 @@ describe('POST /upload', () => {
     const res = await router.handle(
       uploadRequest(formWithFile(pngFile()), { cookie: 'name=alice' }),
     )
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'profile required' })
+  })
+
+  test('valid x-chat-id envelope passes the profile gate without cookies', async () => {
+    const router = makeRouter()
+    const xChatId = encodeIdentity({ n: '小明', a: true })
+    const res = await router.handle(
+      uploadRequest(formWithFile(pngFile()), { xChatId, ip: '5.5.5.5' }),
+    )
+    expect(res.status).not.toBe(400)
+    expect(res.status).toBe(200)
+  })
+
+  test('x-chat-id without avatar flag → 400 profile required', async () => {
+    const router = makeRouter()
+    const xChatId = encodeIdentity({ n: '小明', a: false })
+    const res = await router.handle(uploadRequest(formWithFile(pngFile()), { xChatId }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'profile required' })
+  })
+
+  test('malformed x-chat-id → 400 profile required', async () => {
+    const router = makeRouter()
+    const res = await router.handle(uploadRequest(formWithFile(pngFile()), { xChatId: '!!!' }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'profile required' })
   })

@@ -23,7 +23,9 @@ import {
   shouldHidePill,
   buildMessagePayload,
   shouldAccumulateUnread,
-  planIdentityCookies,
+  planIdentity,
+  buildIdentityEnvelope,
+  isUsableAvatar,
 } from '../src/views/room.client'
 import {
   applyMetaClasses,
@@ -649,17 +651,64 @@ describe('buildReplyQuoteEl', () => {
   })
 })
 
-// ── Task 7: identity cookie planning ──────────────────────────────────
-describe('planIdentityCookies', () => {
-  it('always rewrites uid and adopts the server name when no name cookie exists', () => {
-    expect(planIdentityCookies('', { uid: 'u1', name: 'user_abcde' })).toEqual({ uid: 'u1', name: 'user_abcde' })
+// ── Identity planning (localStorage + server echo) ─────────────────────
+describe('planIdentity', () => {
+  it('adopts the server guest name on a first visit', () => {
+    expect(planIdentity(null, { uid: 'u1', name: 'user_ab12' })).toEqual({ uid: 'u1', name: 'user_ab12' })
   })
 
-  it('never overwrites an existing name cookie', () => {
-    expect(planIdentityCookies('Alice', { uid: 'u1', name: 'user_abcde' })).toEqual({ uid: 'u1', name: undefined })
+  it('never clobbers a stored user-chosen nickname with the server guest name', () => {
+    expect(planIdentity({ uid: 'u1', name: 'Alice' }, { uid: 'u1', name: 'user_ab12' })).toEqual({
+      uid: 'u1',
+      name: 'Alice',
+    })
   })
 
-  it('skips the name write when the server name is empty', () => {
-    expect(planIdentityCookies('', { uid: 'u1' })).toEqual({ uid: 'u1', name: undefined })
+  it('adopts the server name when no name is stored', () => {
+    expect(planIdentity({ uid: 'u1' }, { uid: 'u1', name: 'user_ab12' })).toEqual({ uid: 'u1', name: 'user_ab12' })
+  })
+
+  it('takes the server uid when the server reassigned it', () => {
+    expect(planIdentity({ uid: 'old', name: 'Alice' }, { uid: 'u2', name: 'Bob' })).toEqual({
+      uid: 'u2',
+      name: 'Alice',
+    })
+  })
+
+  it('takes the server uid while keeping the stored name', () => {
+    expect(planIdentity({ name: 'Alice' }, { uid: 'u2', name: 'Bob' })).toEqual({ uid: 'u2', name: 'Alice' })
+  })
+})
+
+describe('buildIdentityEnvelope', () => {
+  it('maps uid and name to the envelope fields', () => {
+    expect(buildIdentityEnvelope({ uid: 'u1', name: 'Alice' })).toEqual({ u: 'u1', n: 'Alice' })
+  })
+
+  it('returns an empty object with no stored identity', () => {
+    expect(buildIdentityEnvelope(null)).toEqual({})
+  })
+
+  it('omits an empty name', () => {
+    expect(buildIdentityEnvelope({ uid: 'u1', name: '' })).toEqual({ u: 'u1' })
+  })
+})
+
+describe('isUsableAvatar', () => {
+  it('accepts https and data:image avatars', () => {
+    expect(isUsableAvatar('https://example.com/a.png')).toBe(true)
+    expect(isUsableAvatar('data:image/png;base64,AAA')).toBe(true)
+    expect(isUsableAvatar('  https://example.com/a.png  ')).toBe(true)
+  })
+
+  it('rejects empty, non-string and non-URL values', () => {
+    expect(isUsableAvatar('')).toBe(false)
+    expect(isUsableAvatar('   ')).toBe(false)
+    expect(isUsableAvatar('not-a-url')).toBe(false)
+    expect(isUsableAvatar('javascript:alert(1)')).toBe(false)
+    expect(isUsableAvatar('http://example.com/a.png')).toBe(false)
+    expect(isUsableAvatar(undefined)).toBe(false)
+    expect(isUsableAvatar(null)).toBe(false)
+    expect(isUsableAvatar(42)).toBe(false)
   })
 })

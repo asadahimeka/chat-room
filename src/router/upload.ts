@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { config } from '../config'
 import { getCookie } from '../utils/input'
+import { decodeIdentity, sanitizeEnvelopeName } from '../utils/identity'
 import { parseClientIp } from '../utils/ip'
 import { compressImage } from '../utils/image-compress'
 
@@ -158,10 +159,13 @@ export function createUploadRouter(deps: UploadDeps = {}): Elysia<any, any, any,
     const headers = new Headers(request.headers)
     const cookieHeader = headers.get('cookie') ?? undefined
 
-    // a. Profile gate: both name AND avatar cookies must be present.
-    const name = getCookie(cookieHeader, 'name')
-    const avatar = getCookie(cookieHeader, 'avatar')
-    if (!name || !avatar) {
+    // a. Profile gate. The x-chat-id envelope carries the same profile data
+    // for cross-site iframes (where Lax cookies are not sent); when present it
+    // is authoritative, otherwise fall back to the legacy cookies.
+    const env = decodeIdentity(headers.get('x-chat-id'))
+    const name = env ? sanitizeEnvelopeName(env.n ?? '') : getCookie(cookieHeader, 'name')
+    const hasAvatar = env ? env.a === true : getCookie(cookieHeader, 'avatar') !== ''
+    if (!name || !hasAvatar) {
       return Response.json({ error: 'profile required' }, { status: 400 })
     }
 

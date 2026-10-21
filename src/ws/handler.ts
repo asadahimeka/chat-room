@@ -14,6 +14,7 @@ import {
 } from '../utils/input'
 import { sanitizeClientId } from './protocol'
 import type { ClientEvent, ServerEvent } from './protocol'
+import { decodeIdentity, sanitizeEnvelopeName, sanitizeEnvelopeUid } from '../utils/identity'
 
 interface ConnData {
   roomId: string
@@ -112,8 +113,18 @@ export function registerWs<App extends Elysia>(app: App, roomState: RoomState): 
         remoteAddress: (ws as { remoteAddress?: string }).remoteAddress ?? null,
       })
 
-      const name = processInput(sanitizeName(getCookie(cookieHeader, 'name')) || genGuestName())
-      const uid = processInput(sanitizeUid(getCookie(cookieHeader, 'uid')) || sid)
+      // Cross-site iframes get no Lax cookies on the WS handshake, so the
+      // client also ships an identity envelope in ?id. It takes precedence;
+      // a malformed/invalid envelope falls through to the legacy cookie path.
+      const env = decodeIdentity(data.query.id)
+      const rawName =
+        sanitizeEnvelopeName(env?.n ?? '') ||
+        sanitizeName(getCookie(cookieHeader, 'name')) ||
+        genGuestName()
+      const name = processInput(rawName)
+      const rawUid =
+        sanitizeEnvelopeUid(env?.u ?? '') || sanitizeUid(getCookie(cookieHeader, 'uid')) || sid
+      const uid = processInput(rawUid)
 
       data.roomId = roomId
       data.sid = sid
